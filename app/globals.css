@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+
+/*
+ * Design system do LeadHunter (SPEC 31/32).
+ * Claro, limpo, azul como primaria, verde para acao positiva,
+ * amarelo/laranja para atencao e vermelho apenas quando necessario.
+ */
+
+@theme {
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+
+  --color-surface: #ffffff;
+  --color-canvas: #f6f8fb;
+  --color-line: #e5e9f0;
+  --color-ink: #0f172a;
+  --color-ink-soft: #475569;
+  --color-ink-mute: #64748b;
+
+  --color-positive: #16a34a;
+  --color-positive-soft: #dcfce7;
+  --color-attention: #d97706;
+  --color-attention-soft: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Foco sempre visivel (SPEC 32). */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Espaco para a navegacao inferior no celular. */
+@media (max-width: 767px) {
+  body {
+    padding-bottom: 4.5rem;
+  }
+}
