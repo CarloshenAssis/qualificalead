@@ -1,4 +1,4 @@
-import type { OpportunityLevel, ScoreBreakdownItem } from '@/types/database';
+import type { GoogleBusinessQuality, OpportunityLevel, ScoreBreakdownItem } from '@/types/database';
 import { levelLabel } from '@/lib/scoring/config';
 import { Badge, Card } from './index';
 import { cn } from '@/lib/utils';
@@ -30,14 +30,22 @@ export function ScoreBadge({
 }
 
 /** Justificativa item a item (SPEC 16). */
+const QUALITY_LABEL: Record<GoogleBusinessQuality, string> = {
+  HIGH: 'Perfil Google robusto',
+  MEDIUM: 'Perfil Google mediano',
+  LOW: 'Perfil Google fraco',
+};
+
 export function ScoreBreakdown({
   score,
   level,
   breakdown,
+  quality,
 }: {
   score: number;
   level: OpportunityLevel;
   breakdown: ScoreBreakdownItem[];
+  quality?: GoogleBusinessQuality;
 }) {
   return (
     <Card>
@@ -62,7 +70,14 @@ export function ScoreBreakdown({
         <p className="text-sm text-ink-mute">Sem sinais pontuados ate agora.</p>
       )}
 
-      <p className="mt-3 text-xs text-ink-mute">
+      {quality ? (
+        <p className="mt-3 text-xs text-ink-soft">
+          {QUALITY_LABEL[quality]} — a qualidade considera completude do cadastro e volume de
+          avaliacoes, nunca apenas a nota.
+        </p>
+      ) : null}
+
+      <p className="mt-2 text-xs text-ink-mute">
         O score resume sinais observaveis da presenca digital. Nao e previsao de compra.
       </p>
     </Card>

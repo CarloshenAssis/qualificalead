@@ -197,6 +197,26 @@ export function ProspectingForm() {
 
           {summary ? (
             <div className="mt-4 flex flex-col gap-3">
+              <p className="text-sm font-medium text-ink">
+                {summary.status === 'PARTIAL'
+                  ? 'Pesquisa concluida parcialmente.'
+                  : 'Pesquisa concluida.'}
+              </p>
+
+              {summary.status === 'PARTIAL' ? (
+                <p className="rounded-lg bg-attention-soft px-3 py-2 text-sm text-attention">
+                  {summary.enrichmentFailed} empresa(s) nao puderam ter a presenca digital
+                  verificada. Elas foram salvas e podem ser reprocessadas na lista de empresas.
+                </p>
+              ) : null}
+
+              {summary.limitReached ? (
+                <p className="text-xs text-ink-mute">
+                  Pesquisa limitada ao numero maximo configurado ({summary.found} empresas). Refine
+                  por bairro ou segmento para cobrir mais.
+                </p>
+              ) : null}
+
               <ul className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <li className="rounded-lg bg-canvas p-3">
                   <span className="block text-lg font-semibold text-ink">{summary.found}</span>
@@ -213,6 +233,22 @@ export function ProspectingForm() {
                 <li className="rounded-lg bg-canvas p-3">
                   <span className="block text-lg font-semibold text-ink">{summary.alreadyKnown}</span>
                   ja estavam na base
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">{summary.newCompanies}</span>
+                  novas empresas
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">{summary.qualified}</span>
+                  oportunidades qualificadas
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">0</span>
+                  duplicatas criadas
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">{summary.fromCache}</span>
+                  reaproveitadas do cache
                 </li>
               </ul>
 

@@ -38,6 +38,21 @@ export function buildLovablePrompt(company: Company, manual: BriefingManualData 
     manual.links?.trim() ? `Links: ${manual.links.trim()}` : null,
   ].filter((line): line is string => Boolean(line));
 
+  // Encontrado, porem sem confirmacao humana: entra em secao separada (SPEC 1.1 §38).
+  const pending: string[] = [
+    company.instagram_url && company.instagram_status === 'PENDING'
+      ? `Instagram ${company.instagram_handle ?? company.instagram_url} (confianca ${
+          company.instagram_confidence ?? 0
+        }/100, ainda nao confirmado — nao apresentar como perfil oficial)`
+      : null,
+    company.website_status === 'UNKNOWN'
+      ? 'Existencia de site (nao foi possivel verificar)'
+      : null,
+    company.website_status === 'NO_WEBSITE_DETECTED'
+      ? 'Ausencia de site (a fonte consultada nao informou site; confirmar com o cliente)'
+      : null,
+  ].filter((line): line is string => Boolean(line));
+
   const unknown: string[] = [
     !company.phone ? 'Telefone' : null,
     !company.address ? 'Endereco completo' : null,
@@ -61,15 +76,20 @@ export function buildLovablePrompt(company: Company, manual: BriefingManualData 
     `- Publico: clientes locais${location ? ` de ${location}` : ''}`,
     '- Objetivo principal: gerar contato via WhatsApp',
     '',
-    'INFORMACOES CONFIRMADAS (use exatamente como estao)',
+    'DADOS CONFIRMADOS (use exatamente como estao)',
     ...known.map((line) => `- ${line}`),
     '',
-    'INFORMACOES QUE AINDA NAO EXISTEM',
-    ...(unknown.length ? unknown.map((line) => `- ${line}`) : ['- Nenhuma']),
+    'DADOS A CONFIRMAR (nao trate como fato)',
+    ...(pending.length ? pending.map((line) => `- ${line}`) : ['- Nenhum']),
+    '',
+    'DADOS QUE AINDA NAO EXISTEM',
+    ...(unknown.length ? unknown.map((line) => `- ${line}`) : ['- Nenhum']),
     '',
     'REGRA CRITICA',
+    '- Nao invente informacoes sobre a empresa.',
+    '- Quando um dado estiver ausente ou marcado como pendente, nao crie conteudo factual para preenche-lo.',
+    '- Utilize placeholders no formato [PREENCHER: item] para informacoes que precisam ser confirmadas.',
     '- NAO invente dados de contato, precos, servicos, depoimentos, premios, numeros ou historia da empresa.',
-    '- Para qualquer informacao ausente, use um placeholder explicito no formato [PREENCHER: item].',
     '- Nao gere depoimentos ficticios nem avaliacoes falsas.',
     '',
     'ESTRUTURA SUGERIDA',

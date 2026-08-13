@@ -35,6 +35,15 @@ function company(overrides: Partial<Company> = {}): Company {
     opportunity_score: 87,
     opportunity_level: 'EXCELENTE',
     score_breakdown: [{ code: 'NO_WEBSITE', label: 'Site nao identificado', points: 30 }],
+    instagram_source: null,
+    instagram_evidence: [],
+    instagram_checked_at: null,
+    website_checked_at: null,
+    google_business_quality: 'MEDIUM',
+    next_action: 'RESEARCH_MORE',
+    next_action_reason: null,
+    enrichment_status: 'OK',
+    enrichment_error: null,
     source_data: null,
     dedup_key: null,
     created_at: '2026-01-01T12:00:00.000Z',
@@ -56,9 +65,10 @@ describe('buildBriefing', () => {
       'PRESENCA DIGITAL',
       'INSTAGRAM',
       'DESCRICAO ENCONTRADA',
-      'DADOS IDENTIFICADOS',
-      'DADOS AUSENTES',
-      'INFORMACOES QUE PRECISAM SER CONFIRMADAS',
+      'INFORMACOES AUTOMATICAS',
+      'INFORMACOES CONFIRMADAS',
+      'INFORMACOES PENDENTES / A CONFIRMAR',
+      'DADOS PARA COMPLETAR',
       'SUGESTAO DE ESTRUTURA DO SITE',
     ]) {
       expect(text).toContain(section);
@@ -79,7 +89,7 @@ describe('buildBriefing', () => {
 
   it('separa os dados informados manualmente', () => {
     const text = buildBriefing(company(), { services: 'Massas e pizzas' });
-    expect(text).toContain('INFORMACOES FORNECIDAS MANUALMENTE');
+    expect(text).toContain('INFORMACOES CONFIRMADAS (fornecidas por voce)');
     expect(text).toContain('Massas e pizzas');
   });
 });
@@ -101,15 +111,52 @@ describe('buildLovablePrompt', () => {
     expect(prompt).not.toContain('wa.me');
   });
 
-  it('nao expoe Instagram ainda nao confirmado', () => {
+  it('separa dados confirmados de dados a confirmar (SPEC 1.1 §38)', () => {
     const prompt = buildLovablePrompt(
       company({
         instagram_url: 'https://instagram.com/cantina',
+        instagram_handle: '@cantina',
         instagram_status: 'PENDING',
         instagram_confidence: 85,
       }),
     );
-    expect(prompt).not.toContain('instagram.com/cantina');
-    expect(prompt).toContain('Instagram confirmado');
+
+    const confirmedBlock = prompt.slice(
+      prompt.indexOf('DADOS CONFIRMADOS'),
+      prompt.indexOf('DADOS A CONFIRMAR'),
+    );
+    const pendingBlock = prompt.slice(
+      prompt.indexOf('DADOS A CONFIRMAR'),
+      prompt.indexOf('DADOS QUE AINDA NAO EXISTEM'),
+    );
+
+    // O perfil pendente nunca entra como dado confirmado.
+    expect(confirmedBlock).not.toContain('cantina');
+    expect(pendingBlock).toContain('@cantina');
+    expect(pendingBlock).toContain('nao apresentar como perfil oficial');
+  });
+
+  it('lista Instagram confirmado entre os dados confirmados', () => {
+    const prompt = buildLovablePrompt(
+      company({
+        instagram_url: 'https://instagram.com/cantina',
+        instagram_handle: '@cantina',
+        instagram_status: 'CONFIRMED',
+        instagram_confidence: 100,
+      }),
+    );
+
+    const confirmedBlock = prompt.slice(
+      prompt.indexOf('DADOS CONFIRMADOS'),
+      prompt.indexOf('DADOS A CONFIRMAR'),
+    );
+    expect(confirmedBlock).toContain('Instagram confirmado: https://instagram.com/cantina');
+  });
+
+  it('reforca a instrucao de nao inventar dados pendentes (SPEC 1.1 §39)', () => {
+    const prompt = buildLovablePrompt(company());
+    expect(prompt).toContain('Nao invente informacoes sobre a empresa.');
+    expect(prompt).toContain('nao crie conteudo factual');
+    expect(prompt).toContain('[PREENCHER: item]');
   });
 });

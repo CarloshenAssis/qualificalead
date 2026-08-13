@@ -36,8 +36,23 @@ export function InstagramReview({ company }: { company: Company }) {
             </Badge>
           </div>
 
+          {company.instagram_source ? (
+            <p className="text-xs text-ink-mute">Origem: {company.instagram_source}.</p>
+          ) : null}
+
+          {company.instagram_evidence?.length ? (
+            <ul className="text-xs text-ink-soft">
+              {company.instagram_evidence.map((item) => (
+                <li key={item.signal} className="flex items-center gap-1.5">
+                  <span aria-hidden>{item.matched ? '✓' : '✗'}</span>
+                  <span className={item.matched ? '' : 'text-ink-mute line-through'}>{item.label}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           <p className="text-xs text-ink-mute">
-            Encontrado a partir de link publicado no site oficial. Confirme antes de usar em uma abordagem.
+            Descoberta nao e confirmacao. Confirme antes de usar em uma abordagem ou no briefing.
           </p>
 
           {company.instagram_status !== 'CONFIRMED' ? (

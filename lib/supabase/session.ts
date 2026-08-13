@@ -50,6 +50,15 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // Rotas de API respondem 401 em JSON: redirecionar para HTML quebraria o
+  // `fetch` do cliente quando a sessao expira no meio de uma prospeccao.
+  if (!user && pathname.startsWith('/api/')) {
+    return NextResponse.json(
+      { error: 'Sessao expirada. Faca login novamente.' },
+      { status: 401 },
+    );
+  }
+
   if (!user && !isPublicPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';

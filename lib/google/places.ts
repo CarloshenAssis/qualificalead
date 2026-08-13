@@ -65,47 +65,101 @@ export type GooglePlace = {
 
 export type LatLng = { latitude: number; longitude: number };
 
-/** Erro com mensagem pronta para o usuario final (SPEC 38). */
+/** Codigos de erro da API (SPEC 1.1 §55). */
+export type GoogleErrorCode =
+  | 'INVALID_ARGUMENT'
+  | 'UNAUTHENTICATED'
+  | 'PERMISSION_DENIED'
+  | 'RESOURCE_EXHAUSTED'
+  | 'NOT_FOUND'
+  | 'INTERNAL'
+  | 'NETWORK'
+  | 'NOT_CONFIGURED';
+
+/** Erro com mensagem pronta para o usuario final (SPEC 38 / SPEC 1.1 §55). */
 export class GooglePlacesError extends Error {
+  readonly code: GoogleErrorCode;
+  readonly retryable: boolean;
   readonly cause?: unknown;
 
-  constructor(message: string, cause?: unknown) {
+  constructor(code: GoogleErrorCode, message: string, cause?: unknown) {
     super(message);
     this.name = 'GooglePlacesError';
+    this.code = code;
+    // Apenas erros transitorios podem ser repetidos (SPEC 1.1 §56).
+    this.retryable = code === 'INTERNAL' || code === 'NETWORK' || code === 'RESOURCE_EXHAUSTED';
     this.cause = cause;
   }
+}
+
+const ERROR_MESSAGES: Record<GoogleErrorCode, string> = {
+  INVALID_ARGUMENT: 'A busca enviada nao foi aceita pelo Google. Revise cidade e segmento.',
+  UNAUTHENTICATED: 'O Google recusou a chave de API. Verifique GOOGLE_MAPS_API_KEY.',
+  PERMISSION_DENIED:
+    'A chave nao tem permissao para esta API. Habilite a Places API (New) e a Geocoding API no Google Cloud.',
+  RESOURCE_EXHAUSTED: 'Limite da API do Google atingido. Tente novamente mais tarde.',
+  NOT_FOUND: 'O Google nao encontrou o recurso consultado.',
+  INTERNAL: 'O Google respondeu com um erro temporario. Tente novamente em instantes.',
+  NETWORK: 'Falha de rede ao consultar o Google. Verifique a conexao e tente novamente.',
+  NOT_CONFIGURED:
+    'A chave do Google Maps nao esta configurada. Defina GOOGLE_MAPS_API_KEY no ambiente.',
+};
+
+/** Traduz status HTTP + corpo da resposta em um codigo conhecido. */
+export function mapGoogleError(status: number, body: string): GooglePlacesError {
+  const upper = body.toUpperCase();
+
+  const detected: GoogleErrorCode | null =
+    upper.includes('RESOURCE_EXHAUSTED') || status === 429
+      ? 'RESOURCE_EXHAUSTED'
+      : upper.includes('PERMISSION_DENIED') || status === 403
+        ? 'PERMISSION_DENIED'
+        : upper.includes('UNAUTHENTICATED') || status === 401
+          ? 'UNAUTHENTICATED'
+          : upper.includes('INVALID_ARGUMENT') || status === 400
+            ? 'INVALID_ARGUMENT'
+            : status === 404
+              ? 'NOT_FOUND'
+              : status >= 500
+                ? 'INTERNAL'
+                : null;
+
+  const code = detected ?? 'INTERNAL';
+  return new GooglePlacesError(code, ERROR_MESSAGES[code], body.slice(0, 500));
+}
+
+/** Numero maximo de tentativas por chamada — nunca retry infinito (SPEC 1.1 §56). */
+export const MAX_ATTEMPTS = 2;
+const BACKOFF_BASE_MS = 500;
+
+async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      const retryable = error instanceof GooglePlacesError && error.retryable;
+      if (!retryable || attempt === MAX_ATTEMPTS) break;
+
+      await new Promise((resolve) => setTimeout(resolve, BACKOFF_BASE_MS * 2 ** (attempt - 1)));
+    }
+  }
+
+  throw lastError;
 }
 
 function requireKey(): string {
   const key = serverGoogleMapsKey();
   if (!key) {
     throw new GooglePlacesError(
+      'NOT_CONFIGURED',
       'A chave do Google Maps nao esta configurada. Defina GOOGLE_MAPS_API_KEY no ambiente.',
     );
   }
   return key;
-}
-
-function friendlyHttpError(status: number, body: string): GooglePlacesError {
-  if (status === 400) {
-    return new GooglePlacesError('A busca enviada nao foi aceita pelo Google. Revise os campos.', body);
-  }
-  if (status === 401 || status === 403) {
-    return new GooglePlacesError(
-      'O Google recusou a chave de API. Verifique se a Places API (New) esta habilitada e se a chave tem permissao.',
-      body,
-    );
-  }
-  if (status === 429) {
-    return new GooglePlacesError(
-      'Limite de consultas do Google atingido. Aguarde alguns instantes e tente novamente.',
-      body,
-    );
-  }
-  return new GooglePlacesError(
-    'Nao foi possivel consultar o Google agora. Tente novamente em instantes.',
-    body,
-  );
 }
 
 /** Converte cidade/estado/pais em coordenadas (Geocoding API). */
@@ -122,16 +176,16 @@ export async function geocodeLocation(params: {
   url.searchParams.set('key', requireKey());
   url.searchParams.set('language', googleLanguageCode());
 
-  let response: Response;
-  try {
-    response = await fetch(url, { cache: 'no-store' });
-  } catch (error) {
-    throw new GooglePlacesError('Falha de rede ao localizar a cidade informada.', error);
-  }
-
-  if (!response.ok) {
-    throw friendlyHttpError(response.status, await response.text());
-  }
+  const response = await withRetry(async () => {
+    let res: Response;
+    try {
+      res = await fetch(url, { cache: 'no-store' });
+    } catch (error) {
+      throw new GooglePlacesError('NETWORK', ERROR_MESSAGES.NETWORK, error);
+    }
+    if (!res.ok) throw mapGoogleError(res.status, await res.text());
+    return res;
+  });
 
   const data = (await response.json()) as {
     status?: string;
@@ -141,7 +195,11 @@ export async function geocodeLocation(params: {
   if (data.status === 'ZERO_RESULTS' || !data.results?.length) return null;
 
   if (data.status !== 'OK') {
-    throw new GooglePlacesError('Nao foi possivel localizar a cidade informada.', data.status);
+    throw new GooglePlacesError(
+      'INVALID_ARGUMENT',
+      'Nao foi possivel localizar a cidade informada. Revise cidade e estado.',
+      data.status,
+    );
   }
 
   const loc = data.results[0]?.geometry?.location;
@@ -187,25 +245,25 @@ async function fetchTextSearchPage(
     };
   }
 
-  let response: Response;
-  try {
-    response = await fetch(TEXT_SEARCH_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': requireKey(),
-        'X-Goog-FieldMask': FIELD_MASK,
-      },
-      body: JSON.stringify(body),
-      cache: 'no-store',
-    });
-  } catch (error) {
-    throw new GooglePlacesError('Falha de rede ao consultar o Google. Tente novamente.', error);
-  }
-
-  if (!response.ok) {
-    throw friendlyHttpError(response.status, await response.text());
-  }
+  const response = await withRetry(async () => {
+    let res: Response;
+    try {
+      res = await fetch(TEXT_SEARCH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': requireKey(),
+          'X-Goog-FieldMask': FIELD_MASK,
+        },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+    } catch (error) {
+      throw new GooglePlacesError('NETWORK', ERROR_MESSAGES.NETWORK, error);
+    }
+    if (!res.ok) throw mapGoogleError(res.status, await res.text());
+    return res;
+  });
 
   const data = (await response.json()) as { places?: GooglePlace[]; nextPageToken?: string };
 

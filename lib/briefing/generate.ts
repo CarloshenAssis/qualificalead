@@ -72,16 +72,33 @@ export function buildBriefing(company: Company, manual: BriefingManualData = {})
   const audit = auditFields(company);
   const wa = whatsappLink(company.phone_international ?? company.phone);
 
+  // O perfil so aparece como oficial depois da confirmacao humana (SPEC 1.1 §37).
   const instagramLine = company.instagram_url
-    ? `- Perfil: ${company.instagram_handle ?? company.instagram_url}\n- Confianca: ${instagramConfidenceLabel(
-        company.instagram_confidence ?? 0,
-      )} (${company.instagram_confidence ?? 0}/100)\n- Situacao: ${company.instagram_status}`
+    ? [
+        `- Perfil: ${company.instagram_handle ?? company.instagram_url}`,
+        `- Situacao: ${
+          company.instagram_status === 'CONFIRMED'
+            ? 'Confirmado pelo usuario'
+            : 'Pendente de confirmacao — nao usar como perfil oficial'
+        }`,
+        `- Confianca: ${instagramConfidenceLabel(company.instagram_confidence ?? 0)} (${
+          company.instagram_confidence ?? 0
+        }/100)`,
+        company.instagram_source ? `- Origem: ${company.instagram_source}` : null,
+        ...(company.instagram_evidence ?? []).map(
+          (item) => `  ${item.matched ? '[x]' : '[ ]'} ${item.label}`,
+        ),
+      ]
+        .filter(Boolean)
+        .join('\n')
     : `- ${NOT_FOUND_LABEL}`;
 
   const websiteLine =
     company.website_status === 'HAS_WEBSITE' && company.website
-      ? `- Site identificado: ${company.website}`
-      : '- Site nao identificado na fonte consultada';
+      ? `- Site encontrado: ${company.website}`
+      : company.website_status === 'UNKNOWN'
+        ? '- Nao foi possivel verificar se a empresa tem site'
+        : '- Site nao identificado na fonte consultada';
 
   const pending = [
     ...audit.missing.map((field) => `- ${field}`),
@@ -90,6 +107,9 @@ export function buildBriefing(company: Company, manual: BriefingManualData = {})
       : null,
     company.website_status === 'NO_WEBSITE_DETECTED'
       ? '- Confirmar com a empresa se realmente nao existe site'
+      : null,
+    company.website_status === 'UNKNOWN'
+      ? '- Verificar manualmente se a empresa possui site'
       : null,
   ].filter((line): line is string => Boolean(line));
 
@@ -145,22 +165,22 @@ export function buildBriefing(company: Company, manual: BriefingManualData = {})
     section('DESCRICAO ENCONTRADA', [`- ${value(company.description, NOT_FOUND_LABEL)}`]),
     '',
     section(
-      'DADOS IDENTIFICADOS',
+      'INFORMACOES AUTOMATICAS (coletadas do Google)',
       audit.present.map((f) => `- ${f}`),
     ),
     '',
     section(
-      'DADOS AUSENTES',
+      'DADOS PARA COMPLETAR',
       audit.missing.length ? audit.missing.map((f) => `- ${f}`) : ['- Nenhum'],
     ),
     '',
     section(
-      'INFORMACOES QUE PRECISAM SER CONFIRMADAS',
+      'INFORMACOES PENDENTES / A CONFIRMAR',
       pending.length ? pending : ['- Nenhuma'],
     ),
     '',
     section(
-      'INFORMACOES FORNECIDAS MANUALMENTE',
+      'INFORMACOES CONFIRMADAS (fornecidas por voce)',
       manualLines.length ? manualLines : [`- ${NOT_INFORMED_LABEL}`],
     ),
     '',

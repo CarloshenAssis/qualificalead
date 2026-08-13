@@ -164,5 +164,5 @@ export function buildXlsxFromRows(rows: string[][]): Uint8Array {
 }
 
 export function buildXlsx(companies: Company[]): Uint8Array {
-  return buildXlsxFromRows([[...EXPORT_HEADERS], ...companies.map(companyToRow)]);
+  return buildXlsxFromRows([[...EXPORT_HEADERS], ...companies.map((company) => companyToRow(company))]);
 }

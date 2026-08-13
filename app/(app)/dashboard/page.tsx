@@ -2,7 +2,8 @@ import { Card, EmptyState, LinkButton, SectionTitle, Stat } from '@/components/u
 import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import Link from 'next/link';
 import { createClient, requireUser } from '@/lib/supabase/server';
-import type { Company, LeadStatus } from '@/types/database';
+import type { Company, LeadStatus, ProspectingSearch } from '@/types/database';
+import { formatDate } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,7 @@ export default async function DashboardPage() {
     excellentOpportunity,
     leadStatusRows,
     topCompanies,
+    recentSearches,
   ] = await Promise.all([
     supabase.from('companies').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
     supabase
@@ -41,6 +43,12 @@ export default async function DashboardPage() {
       .eq('user_id', user.id)
       .order('opportunity_score', { ascending: false })
       .limit(5),
+    supabase
+      .from('prospecting_searches')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(5),
   ]);
 
   const leadCounts = ((leadStatusRows.data ?? []) as { status: LeadStatus }[]).reduce(
@@ -52,6 +60,7 @@ export default async function DashboardPage() {
   );
 
   const top = (topCompanies.data ?? []) as Company[];
+  const searches = (recentSearches.data ?? []) as ProspectingSearch[];
 
   return (
     <div className="flex flex-col gap-6">
@@ -84,6 +93,32 @@ export default async function DashboardPage() {
           <Stat label="Vendidos" value={leadCounts.VENDIDO ?? 0} tone="positive" />
         </div>
       </section>
+
+      {searches.length ? (
+        <section>
+          <SectionTitle>Pesquisas recentes</SectionTitle>
+          <ul className="flex flex-col gap-2">
+            {searches.map((search) => (
+              <li key={search.id}>
+                <Link href={`/companies?city=${encodeURIComponent(search.city ?? '')}`}>
+                  <Card className="py-3 hover:border-brand-200">
+                    <p className="truncate text-sm font-medium text-ink">
+                      {search.segment ?? search.query}
+                      {search.city ? ` · ${search.city}` : ''}
+                    </p>
+                    <p className="text-xs text-ink-mute">
+                      {formatDate(search.created_at)} · {search.results_count} resultados ·{' '}
+                      {search.new_companies_count} novas · {search.excellent_opportunity_count}{' '}
+                      excelentes
+                      {search.status === 'PARTIAL' ? ' · concluida parcialmente' : ''}
+                    </p>
+                  </Card>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section>
         <SectionTitle

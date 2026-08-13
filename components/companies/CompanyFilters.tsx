@@ -1,6 +1,7 @@
 import { Filter } from 'lucide-react';
 import { Button, Card, Field, Input, LinkButton, Select } from '@/components/ui';
 import type { CompanyFilters as Filters } from '@/lib/validation/schemas';
+import { SORT_OPTIONS } from '@/lib/companies/query';
 
 /**
  * Filtros da SPEC 13. Formulario GET: funciona sem JavaScript e mantem
@@ -62,6 +63,25 @@ export function CompanyFilters({ filters }: { filters: Filters }) {
               <option value="all">Todos</option>
               <option value="available">Disponivel</option>
               <option value="unavailable">Indisponivel</option>
+            </Select>
+          </Field>
+
+          <Field label="Score minimo" htmlFor="minScore">
+            <Select id="minScore" name="minScore" defaultValue={filters.minScore?.toString() ?? ''}>
+              <option value="">Qualquer</option>
+              <option value="40">40 ou mais</option>
+              <option value="70">70 ou mais</option>
+              <option value="85">85 ou mais</option>
+            </Select>
+          </Field>
+
+          <Field label="Ordenar por" htmlFor="sort">
+            <Select id="sort" name="sort" defaultValue={filters.sort}>
+              {Object.entries(SORT_OPTIONS).map(([key, option]) => (
+                <option key={key} value={key}>
+                  {option.label}
+                </option>
+              ))}
             </Select>
           </Field>
 

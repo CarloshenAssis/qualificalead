@@ -299,8 +299,11 @@ A interface deve utilizar destaque visual diferente para cada classificação.
 
 Cada lead deve possuir `score` e `score_breakdown`:
 
+> **Correcao documental (SPEC 1.1 §28):** a soma dos itens do exemplo abaixo e **97**,
+> nao 94. O sistema respeita os pesos reais da tabela da secao 14.
+
 ```text
-Score: 94/100
+Score: 97/100
 
 +30  Site não identificado
 +15  Google Business bem configurado

@@ -3,8 +3,48 @@
  * Espelha `database/migrations/0001_init.sql`.
  */
 
-export const WEBSITE_STATUSES = ['HAS_WEBSITE', 'NO_WEBSITE_DETECTED'] as const;
+export const WEBSITE_STATUSES = ['HAS_WEBSITE', 'NO_WEBSITE_DETECTED', 'UNKNOWN'] as const;
 export type WebsiteStatus = (typeof WEBSITE_STATUSES)[number];
+
+/** Rotulo de interface para cada estado do website (SPEC 1.1 §17). */
+export const WEBSITE_STATUS_LABELS: Record<WebsiteStatus, string> = {
+  HAS_WEBSITE: 'Site encontrado',
+  NO_WEBSITE_DETECTED: 'Site nao identificado',
+  UNKNOWN: 'Nao foi possivel verificar',
+};
+
+export const GOOGLE_BUSINESS_QUALITIES = ['LOW', 'MEDIUM', 'HIGH'] as const;
+export type GoogleBusinessQuality = (typeof GOOGLE_BUSINESS_QUALITIES)[number];
+
+export const NEXT_ACTIONS = [
+  'CONTACT_NOW',
+  'RESEARCH_MORE',
+  'LOW_PRIORITY',
+  'ALREADY_CONTACTED',
+  'DO_NOT_CONTACT',
+] as const;
+export type NextAction = (typeof NEXT_ACTIONS)[number];
+
+export const NEXT_ACTION_LABELS: Record<NextAction, string> = {
+  CONTACT_NOW: 'Contatar agora',
+  RESEARCH_MORE: 'Pesquisar mais',
+  LOW_PRIORITY: 'Baixa prioridade',
+  ALREADY_CONTACTED: 'Ja contatado',
+  DO_NOT_CONTACT: 'Nao contatar',
+};
+
+export const ENRICHMENT_STATUSES = ['OK', 'FAILED', 'SKIPPED'] as const;
+export type EnrichmentStatus = (typeof ENRICHMENT_STATUSES)[number];
+
+export const SEARCH_STATUSES = ['COMPLETED', 'PARTIAL', 'FAILED'] as const;
+export type SearchStatus = (typeof SEARCH_STATUSES)[number];
+
+/** Evidencia usada para calcular a confianca de um dado enriquecido (SPEC 1.1 §21/§23). */
+export type MatchEvidence = {
+  signal: string;
+  label: string;
+  matched: boolean;
+};
 
 export const INSTAGRAM_STATUSES = ['NOT_FOUND', 'PENDING', 'CONFIRMED', 'REJECTED'] as const;
 export type InstagramStatus = (typeof INSTAGRAM_STATUSES)[number];
@@ -81,9 +121,18 @@ export type Company = {
   instagram_handle: string | null;
   instagram_confidence: number | null;
   instagram_status: InstagramStatus;
+  instagram_source: string | null;
+  instagram_evidence: MatchEvidence[];
+  instagram_checked_at: string | null;
+  website_checked_at: string | null;
   opportunity_score: number;
   opportunity_level: OpportunityLevel;
   score_breakdown: ScoreBreakdownItem[];
+  google_business_quality: GoogleBusinessQuality;
+  next_action: NextAction;
+  next_action_reason: string | null;
+  enrichment_status: EnrichmentStatus;
+  enrichment_error: string | null;
   source_data: Record<string, unknown> | null;
   dedup_key: string | null;
   created_at: string;
@@ -98,13 +147,25 @@ export type ProspectingSearch = {
   id: string;
   user_id: string;
   query: string;
+  segment: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
   radius: number | null;
   filters: Record<string, unknown> | null;
+  status: SearchStatus;
   results_count: number;
   qualified_count: number;
+  new_companies_count: number;
+  existing_companies_count: number;
+  high_opportunity_count: number;
+  excellent_opportunity_count: number;
+  without_website_count: number;
+  /** Base para um futuro controle de creditos (SPEC 1.1 §83). */
+  places_requested: number;
+  places_processed: number;
+  enrichment_count: number;
+  enrichment_failed_count: number;
   created_at: string;
 };
 

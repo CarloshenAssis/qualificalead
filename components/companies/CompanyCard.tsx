@@ -3,7 +3,8 @@ import { Badge, Card, ExternalLinkButton, LinkButton } from '@/components/ui';
 import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import { AddToPipelineButton } from './AddToPipelineButton';
 import { formatPhoneDisplay, whatsappLink } from '@/lib/whatsapp/phone';
-import type { CompanyWithLead } from '@/types/database';
+import { WEBSITE_STATUS_LABELS, type CompanyWithLead } from '@/types/database';
+import { NextActionTag } from './NextActionCard';
 
 /** Cartao de resultado (SPEC 23) — em cards tambem no celular, sem tabela horizontal. */
 export function CompanyCard({ company }: { company: CompanyWithLead }) {
@@ -34,11 +35,9 @@ export function CompanyCard({ company }: { company: CompanyWithLead }) {
           <Badge tone="neutral">Sem avaliacoes</Badge>
         )}
 
-        {company.website_status === 'HAS_WEBSITE' ? (
-          <Badge tone="neutral">Com site</Badge>
-        ) : (
-          <Badge tone="attention">Site nao identificado</Badge>
-        )}
+        <Badge tone={company.website_status === 'NO_WEBSITE_DETECTED' ? 'attention' : 'neutral'}>
+          {WEBSITE_STATUS_LABELS[company.website_status]}
+        </Badge>
 
         {company.instagram_url ? (
           <Badge tone={company.instagram_status === 'CONFIRMED' ? 'positive' : 'brand'}>
@@ -57,6 +56,8 @@ export function CompanyCard({ company }: { company: CompanyWithLead }) {
 
         {lead ? <Badge tone="brand">{lead.status}</Badge> : null}
       </div>
+
+      <NextActionTag action={company.next_action} />
 
       <div className="flex flex-wrap gap-2">
         <LinkButton href={`/companies/${company.id}`} variant="primary">

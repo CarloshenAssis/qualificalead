@@ -49,15 +49,28 @@ export function applyCompanyFilters<T>(query: T, filters: CompanyFilters): T {
   if (filters.phone === 'unavailable') q = q.is('phone', null);
 
   if (filters.level !== 'all') q = q.eq('opportunity_level', filters.level);
+  if (filters.minScore !== undefined) q = q.gte('opportunity_score', filters.minScore);
   if (filters.city) q = q.ilike('city', `%${filters.city}%`);
   if (filters.q) q = q.ilike('name', `%${filters.q}%`);
 
   return q as unknown as T;
 }
 
-/** Listagem paginada e ordenada por score (SPEC 21/23). */
+/** Coluna e direcao de cada ordenacao disponivel (SPEC 1.1 §47). */
+export const SORT_OPTIONS = {
+  score: { column: 'opportunity_score', ascending: false, label: 'Maior score' },
+  rating: { column: 'rating', ascending: false, label: 'Melhor avaliacao' },
+  reviews: { column: 'review_count', ascending: false, label: 'Mais avaliacoes' },
+  recent: { column: 'created_at', ascending: false, label: 'Descobertas recentemente' },
+  name: { column: 'name', ascending: true, label: 'Nome (A-Z)' },
+} as const;
+
+export type SortKey = keyof typeof SORT_OPTIONS;
+
+/** Listagem paginada com filtros combinados e ordenacao (SPEC 21/23, SPEC 1.1 §47/§48). */
 export function companiesQuery(supabase: SupabaseClient, userId: string, filters: CompanyFilters) {
   const from = (filters.page - 1) * PAGE_SIZE;
+  const sort = SORT_OPTIONS[filters.sort];
 
   const base = supabase
     .from('companies')
@@ -65,7 +78,7 @@ export function companiesQuery(supabase: SupabaseClient, userId: string, filters
     .eq('user_id', userId);
 
   return applyCompanyFilters(base, filters)
-    .order('opportunity_score', { ascending: false })
+    .order(sort.column, { ascending: sort.ascending, nullsFirst: false })
     .order('review_count', { ascending: false, nullsFirst: false })
     .range(from, from + PAGE_SIZE - 1);
 }
@@ -77,8 +90,9 @@ export function companiesExportQuery(
   filters: CompanyFilters,
 ) {
   const base = supabase.from('companies').select('*').eq('user_id', userId);
+  const sort = SORT_OPTIONS[filters.sort];
 
   return applyCompanyFilters(base, filters)
-    .order('opportunity_score', { ascending: false })
+    .order(sort.column, { ascending: sort.ascending, nullsFirst: false })
     .limit(5000);
 }

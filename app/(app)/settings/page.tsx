@@ -8,7 +8,7 @@ import {
   REVIEW_COUNT_TIERS,
   SCORE_WEIGHTS,
 } from '@/lib/scoring/config';
-import { DIGITAL_PRESENCE_TTL_DAYS } from '@/lib/prospecting/run';
+import { digitalPresenceTtlDays } from '@/lib/env';
 import type { Profile } from '@/types/database';
 
 export const dynamic = 'force-dynamic';
@@ -99,7 +99,7 @@ export default async function SettingsPage() {
         <SectionTitle>Pesquisa</SectionTitle>
         <p className="text-sm text-ink-soft">
           A presenca digital de uma empresa ja conhecida so e reconsultada apos{' '}
-          <strong>{DIGITAL_PRESENCE_TTL_DAYS} dias</strong>, para evitar chamadas desnecessarias as
+          <strong>{digitalPresenceTtlDays()} dias</strong>, para evitar chamadas desnecessarias as
           APIs. Empresas ja salvas nunca sao duplicadas: a chave e o identificador do Google.
         </p>
       </Card>

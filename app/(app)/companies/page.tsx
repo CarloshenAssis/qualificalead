@@ -1,6 +1,7 @@
 import { Download } from 'lucide-react';
 import { CompanyCard } from '@/components/companies/CompanyCard';
 import { CompanyFilters } from '@/components/companies/CompanyFilters';
+import { ReprocessBanner } from '@/components/companies/ReprocessBanner';
 import { Card, EmptyState, LinkButton } from '@/components/ui';
 import { createClient, requireUser } from '@/lib/supabase/server';
 import { companiesQuery, PAGE_SIZE } from '@/lib/companies/query';
@@ -31,7 +32,15 @@ export default async function CompaniesPage({
 
   const user = await requireUser();
   const supabase = await createClient();
-  const { data, count, error } = await companiesQuery(supabase, user.id, filters);
+
+  const [{ data, count, error }, { count: failedCount }] = await Promise.all([
+    companiesQuery(supabase, user.id, filters),
+    supabase
+      .from('companies')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('enrichment_status', 'FAILED'),
+  ]);
 
   const companies = (data ?? []) as CompanyWithLead[];
   const total = count ?? 0;
@@ -59,6 +68,8 @@ export default async function CompaniesPage({
           </LinkButton>
         </div>
       </header>
+
+      <ReprocessBanner failedCount={failedCount ?? 0} />
 
       <CompanyFilters filters={filters} />
 

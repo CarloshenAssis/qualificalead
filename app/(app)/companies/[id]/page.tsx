@@ -9,7 +9,8 @@ import { BriefingPanel } from '@/components/briefing/BriefingPanel';
 import { createClient, requireUser } from '@/lib/supabase/server';
 import { formatPhoneDisplay, whatsappLink } from '@/lib/whatsapp/phone';
 import { formatDate } from '@/lib/utils';
-import type { Briefing, Company, Interaction, Lead } from '@/types/database';
+import { WEBSITE_STATUS_LABELS, type Briefing, type Company, type Interaction, type Lead } from '@/types/database';
+import { NextActionCard } from '@/components/companies/NextActionCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,9 +100,18 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         ) : null}
       </div>
 
+      <div className="lg:hidden">
+        <NextActionCard action={company.next_action} reason={company.next_action_reason} />
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-2">
+        <div className="hidden lg:col-span-2 lg:block">
+          <NextActionCard action={company.next_action} reason={company.next_action_reason} />
+        </div>
+
         <Card>
           <SectionTitle>Informacoes basicas</SectionTitle>
+          <p className="mb-2 text-xs text-ink-mute">Dados coletados do Google Places.</p>
           <dl>
             <InfoRow label="Nome" value={company.name} />
             <InfoRow label="Categoria" value={company.category ?? 'Nao informado'} />
@@ -155,6 +165,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
 
         <Card>
           <SectionTitle>Presenca digital</SectionTitle>
+          <p className="mb-2 text-xs text-ink-mute">Dados coletados e verificados pelo sistema.</p>
           <dl>
             <InfoRow
               label="Website"
@@ -169,7 +180,9 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
                     {company.website}
                   </a>
                 ) : (
-                  <Badge tone="attention">Site nao identificado</Badge>
+                  <Badge tone={company.website_status === 'UNKNOWN' ? 'neutral' : 'attention'}>
+                    {WEBSITE_STATUS_LABELS[company.website_status]}
+                  </Badge>
                 )
               }
             />
@@ -178,6 +191,17 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
               value={company.instagram_handle ?? (company.instagram_url ? company.instagram_url : 'Nao encontrado')}
             />
             <InfoRow label="Situacao do Instagram" value={company.instagram_status} />
+            <InfoRow label="Origem do Instagram" value={company.instagram_source ?? 'Nao aplicavel'} />
+            <InfoRow
+              label="Enriquecimento"
+              value={
+                company.enrichment_status === 'FAILED' ? (
+                  <span className="text-danger">Falhou — reprocessar</span>
+                ) : (
+                  company.enrichment_status
+                )
+              }
+            />
           </dl>
           <p className="mt-3 text-xs text-ink-mute">
             &quot;Site nao identificado&quot; significa que a fonte consultada nao informou um site —
@@ -189,6 +213,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
           score={company.opportunity_score}
           level={company.opportunity_level}
           breakdown={company.score_breakdown ?? []}
+          quality={company.google_business_quality}
         />
 
         <InstagramReview company={company} />

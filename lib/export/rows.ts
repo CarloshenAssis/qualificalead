@@ -1,4 +1,5 @@
-import type { Company } from '@/types/database';
+import type { Company, LeadStatus } from '@/types/database';
+import { NEXT_ACTION_LABELS, WEBSITE_STATUS_LABELS } from '@/types/database';
 import { levelLabel } from '@/lib/scoring/config';
 import { whatsappLink } from '@/lib/whatsapp/phone';
 
@@ -20,11 +21,14 @@ export const EXPORT_HEADERS = [
   'Qtd. avaliacoes',
   'Score',
   'Classificacao',
+  'Qualidade do perfil Google',
+  'Acao recomendada',
+  'Status do lead',
   'Google Maps',
   'Encontrada em',
 ] as const;
 
-export function companyToRow(company: Company): string[] {
+export function companyToRow(company: Company, leadStatus?: LeadStatus | null): string[] {
   return [
     company.name,
     company.category ?? '',
@@ -34,7 +38,7 @@ export function companyToRow(company: Company): string[] {
     company.phone ?? '',
     whatsappLink(company.phone_international ?? company.phone) ?? '',
     company.website ?? '',
-    company.website_status === 'HAS_WEBSITE' ? 'Com site' : 'Site nao identificado',
+    WEBSITE_STATUS_LABELS[company.website_status],
     company.instagram_url ?? '',
     company.instagram_confidence !== null ? String(company.instagram_confidence) : '',
     company.instagram_status,
@@ -42,6 +46,9 @@ export function companyToRow(company: Company): string[] {
     company.review_count !== null ? String(company.review_count) : '',
     String(company.opportunity_score),
     levelLabel(company.opportunity_level),
+    company.google_business_quality,
+    NEXT_ACTION_LABELS[company.next_action],
+    leadStatus ?? '',
     company.google_maps_url ?? '',
     company.created_at,
   ];

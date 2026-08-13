@@ -11,6 +11,7 @@ function baseInput(overrides: Partial<ScoreInput> = {}): ScoreInput {
     phone: null,
     instagram_url: null,
     instagram_confidence: null,
+    instagram_status: 'NOT_FOUND',
     business_status: null,
     address: null,
     category: null,
@@ -59,16 +60,54 @@ describe('computeOpportunityScore', () => {
     ).toBe(true);
   });
 
-  it('so da bonus de alta confianca quando o Instagram passa do limite', () => {
-    const low = computeOpportunityScore(
-      baseInput({ instagram_url: 'https://instagram.com/x', instagram_confidence: 60 }),
-    );
-    expect(low.breakdown.some((i) => i.code === 'INSTAGRAM_HIGH_CONFIDENCE')).toBe(false);
+  it('nao da bonus extra para Instagram de baixa ou media confianca (SPEC 1.1 §29)', () => {
+    for (const confidence of [20, 60, 85]) {
+      const result = computeOpportunityScore(
+        baseInput({
+          instagram_url: 'https://instagram.com/x',
+          instagram_confidence: confidence,
+          instagram_status: 'PENDING',
+        }),
+      );
+      expect(result.breakdown.some((i) => i.code === 'INSTAGRAM_FOUND')).toBe(true);
+      expect(result.breakdown.some((i) => i.code === 'INSTAGRAM_HIGH_CONFIDENCE')).toBe(false);
+    }
+  });
 
-    const high = computeOpportunityScore(
-      baseInput({ instagram_url: 'https://instagram.com/x', instagram_confidence: 85 }),
+  it('da bonus extra com confianca muito alta ou confirmacao humana', () => {
+    const veryHigh = computeOpportunityScore(
+      baseInput({
+        instagram_url: 'https://instagram.com/x',
+        instagram_confidence: 95,
+        instagram_status: 'PENDING',
+      }),
     );
-    expect(high.breakdown.some((i) => i.code === 'INSTAGRAM_HIGH_CONFIDENCE')).toBe(true);
+    expect(veryHigh.breakdown.some((i) => i.code === 'INSTAGRAM_HIGH_CONFIDENCE')).toBe(true);
+
+    const confirmed = computeOpportunityScore(
+      baseInput({
+        instagram_url: 'https://instagram.com/x',
+        instagram_confidence: 45,
+        instagram_status: 'CONFIRMED',
+      }),
+    );
+    expect(confirmed.breakdown.some((i) => i.code === 'INSTAGRAM_HIGH_CONFIDENCE')).toBe(true);
+  });
+
+  it('Instagram rejeitado deixa de pontuar', () => {
+    const rejected = computeOpportunityScore(
+      baseInput({
+        instagram_url: 'https://instagram.com/x',
+        instagram_confidence: 95,
+        instagram_status: 'REJECTED',
+      }),
+    );
+    expect(rejected.breakdown.some((i) => i.code.startsWith('INSTAGRAM'))).toBe(false);
+  });
+
+  it('website UNKNOWN nao pontua como ausencia de site (SPEC 1.1 §17)', () => {
+    const unknown = computeOpportunityScore(baseInput({ website_status: 'UNKNOWN' }));
+    expect(unknown.breakdown.some((i) => i.code === 'NO_WEBSITE')).toBe(false);
   });
 
   it('nao considera ativa uma empresa fechada permanentemente', () => {

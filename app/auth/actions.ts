@@ -7,8 +7,13 @@ import { authSchema, firstIssueMessage } from '@/lib/validation/schemas';
 
 export type AuthState = { error?: string; message?: string };
 
-/** Mensagens do Supabase traduzidas para linguagem de usuario final (SPEC 38). */
+/**
+ * Mensagens do Supabase traduzidas para linguagem de usuario final (SPEC 38).
+ * O detalhe tecnico vai para o log do servidor (SPEC 1.1 §57), nunca para a tela.
+ */
 function friendlyAuthError(message: string): string {
+  console.error('[auth] falha de autenticacao', { message });
+
   const normalized = message.toLowerCase();
   if (normalized.includes('invalid login credentials')) return 'E-mail ou senha incorretos.';
   if (normalized.includes('email not confirmed')) {

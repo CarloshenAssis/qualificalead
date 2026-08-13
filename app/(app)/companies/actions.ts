@@ -9,7 +9,7 @@ import {
   interactionSchema,
   leadUpsertSchema,
 } from '@/lib/validation/schemas';
-import { computeOpportunityScore } from '@/lib/scoring/score';
+import { derivedFieldsFor } from '@/lib/scoring/rescore';
 import { buildBriefing } from '@/lib/briefing/generate';
 import { buildLovablePrompt } from '@/lib/briefing/lovable';
 import type { BriefingManualData, Company, LeadStatus } from '@/types/database';
@@ -23,36 +23,28 @@ function fail(error: unknown, message = GENERIC_ERROR): ActionState {
   return { error: message };
 }
 
-/** Recalcula o score depois de qualquer mudanca que afete os sinais (SPEC 14). */
+/**
+ * Recalcula score, qualidade do perfil e acao recomendada apos qualquer mudanca
+ * que afete os sinais (SPEC 14, SPEC 1.1 §15/§33).
+ */
 async function rescoreCompany(companyId: string): Promise<void> {
   const supabase = await createClient();
   const { data, error } = await supabase.from('companies').select('*').eq('id', companyId).single();
   if (error || !data) return;
 
   const company = data as Company;
-  const result = computeOpportunityScore({
-    website_status: company.website_status,
-    rating: company.rating,
-    review_count: company.review_count,
-    phone: company.phone ?? company.phone_international,
-    instagram_url: company.instagram_status === 'REJECTED' ? null : company.instagram_url,
-    instagram_confidence: company.instagram_confidence,
-    business_status: company.business_status,
-    address: company.address,
-    category: company.category,
-    opening_hours: company.opening_hours,
-    description: company.description,
-    google_maps_url: company.google_maps_url,
-  });
+
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('status')
+    .eq('company_id', company.id)
+    .maybeSingle();
 
   await supabase
     .from('companies')
-    .update({
-      opportunity_score: result.score,
-      opportunity_level: result.level,
-      score_breakdown: result.breakdown,
-    })
-    .eq('id', company.id);
+    .update(derivedFieldsFor(company, (lead?.status as LeadStatus | undefined) ?? null))
+    .eq('id', company.id)
+    .eq('user_id', company.user_id);
 }
 
 /** Cria (ou recupera) o lead da empresa no pipeline (SPEC 20). */
@@ -131,6 +123,9 @@ export async function updateLead(_prev: ActionState, formData: FormData): Promis
       });
     }
 
+    // A acao recomendada depende do estado do lead (SPEC 1.1 §33).
+    await rescoreCompany(parsed.data.companyId);
+
     revalidatePath(`/companies/${parsed.data.companyId}`);
     revalidatePath('/pipeline');
     revalidatePath('/dashboard');
@@ -197,14 +192,23 @@ export async function reviewInstagram(_prev: ActionState, formData: FormData): P
 
     let payload: Record<string, unknown>;
 
+    const now = new Date().toISOString();
+
     if (parsed.data.action === 'confirm') {
-      payload = { instagram_status: 'CONFIRMED', instagram_confidence: 100 };
+      payload = {
+        instagram_status: 'CONFIRMED',
+        instagram_confidence: 100,
+        instagram_checked_at: now,
+      };
     } else if (parsed.data.action === 'reject') {
       payload = {
         instagram_status: 'REJECTED',
         instagram_url: null,
         instagram_handle: null,
         instagram_confidence: null,
+        instagram_source: null,
+        instagram_evidence: [],
+        instagram_checked_at: now,
       };
     } else {
       const handle = parsed.data.handle?.trim().replace(/^@/, '').replace(/\/+$/, '');
@@ -217,6 +221,9 @@ export async function reviewInstagram(_prev: ActionState, formData: FormData): P
         instagram_handle: `@${handle}`,
         // Informado pelo usuario: confianca maxima porque houve confirmacao humana.
         instagram_confidence: 100,
+        instagram_source: 'Informado manualmente',
+        instagram_evidence: [{ signal: 'MANUAL', label: 'Confirmado pelo usuario', matched: true }],
+        instagram_checked_at: now,
       };
     }
 

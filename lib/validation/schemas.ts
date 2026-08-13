@@ -32,8 +32,13 @@ export const companyFiltersSchema = z.object({
   instagram: z.enum(['all', 'found', 'not_found', 'high_confidence', 'pending']).default('all'),
   phone: z.enum(['all', 'available', 'unavailable']).default('all'),
   level: z.enum(['all', 'BAIXA', 'MEDIA', 'ALTA', 'EXCELENTE']).default('all'),
+  minScore: z.coerce.number().int().min(0).max(100).optional(),
   city: z.string().trim().max(120).optional(),
   q: z.string().trim().max(120).optional(),
+  /** Ordenacao dos resultados (SPEC 1.1 §47). */
+  sort: z
+    .enum(['score', 'rating', 'reviews', 'recent', 'name'])
+    .default('score'),
   page: z.coerce.number().int().min(1).default(1),
 });
 
