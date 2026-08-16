@@ -121,10 +121,19 @@ async function checkGoogle(): Promise<HealthCheck[]> {
     });
   } catch (error) {
     const known = error instanceof GooglePlacesError;
+    // Mostra o status/mensagem reais do Google (sem segredos) para diagnostico direto (SPEC 1.1 §57).
+    const technical =
+      known && error.detail
+        ? ` (${error.detail.api} · HTTP ${error.detail.httpStatus} · ${error.detail.googleStatus ?? 'sem status'}${
+            error.detail.googleMessage ? ` · ${error.detail.googleMessage}` : ''
+          })`
+        : '';
     checks.push({
       name: 'Places Text Search',
       level: 'fail',
-      detail: known ? `${error.code}: ${error.message}` : 'Falha desconhecida ao consultar a API.',
+      detail: known
+        ? `${error.code}: ${error.message}${technical}`
+        : 'Falha desconhecida ao consultar a API.',
     });
   }
 

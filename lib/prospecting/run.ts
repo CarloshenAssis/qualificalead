@@ -67,7 +67,11 @@ export type ProspectingEvent =
   | { type: 'stage'; stage: ProspectingStage; message: string }
   | { type: 'progress'; processed: number; total: number }
   | { type: 'warning'; message: string }
-  | { type: 'error'; message: string; code?: string }
+  /**
+   * `detail` e diagnostico tecnico (api/status HTTP/status e mensagem do Google) para
+   * ajudar a identificar a causa real de uma falha — nunca contem credenciais (SPEC 1.1 §57).
+   */
+  | { type: 'error'; message: string; code?: string; detail?: string }
   | { type: 'done'; summary: ProspectingSummary; searchId: string | null };
 
 async function mapWithConcurrency<T, R>(
@@ -234,9 +238,12 @@ export async function* runProspecting(
     });
   } catch (error) {
     const isKnown = error instanceof GooglePlacesError;
+    // Diagnostico completo no log tecnico — o erro real nao pode ficar escondido atras
+    // do codigo generico (SPEC 1.1 §57). O detail ja vem sem segredos (lib/google/places.ts).
     console.error('[prospecting] falha na busca', {
       userId,
       code: isKnown ? error.code : 'UNKNOWN',
+      detail: isKnown ? error.detail : error instanceof Error ? error.message : String(error),
     });
     yield {
       type: 'error',
@@ -244,6 +251,12 @@ export async function* runProspecting(
       message: isKnown
         ? error.message
         : 'Nao foi possivel consultar as empresas agora. Tente novamente.',
+      // Mesmo diagnostico tambem chega ao resultado da prospeccao, para o usuario
+      // conseguir ver a causa real sem precisar abrir os logs do servidor.
+      detail:
+        isKnown && error.detail
+          ? `${error.detail.api} · HTTP ${error.detail.httpStatus} · ${error.detail.googleStatus ?? 'sem status'} · ${error.detail.googleMessage ?? 'sem mensagem'}`
+          : undefined,
     };
     return;
   }

@@ -16,6 +16,7 @@ export function ProspectingForm() {
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [summary, setSummary] = useState<ProspectingSummary | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -37,6 +38,7 @@ export function ProspectingForm() {
     setProgress(null);
     setWarnings([]);
     setError(null);
+    setErrorDetail(null);
     setSummary(null);
 
     const controller = new AbortController();
@@ -85,6 +87,7 @@ export function ProspectingForm() {
           if (event.type === 'warning') setWarnings((prev) => [...prev, event.message]);
           if (event.type === 'error') {
             setError(event.message);
+            setErrorDetail(event.detail ?? null);
             setStatus('error');
           }
           if (event.type === 'done') {
@@ -190,8 +193,14 @@ export function ProspectingForm() {
           ))}
 
           {error ? (
-            <div className="mt-3">
+            <div className="mt-3 flex flex-col gap-2">
               <ErrorMessage>{error}</ErrorMessage>
+              {errorDetail ? (
+                <details className="text-xs text-ink-mute">
+                  <summary className="cursor-pointer select-none">Detalhe tecnico</summary>
+                  <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-canvas p-2">{errorDetail}</pre>
+                </details>
+              ) : null}
             </div>
           ) : null}
 

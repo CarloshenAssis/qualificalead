@@ -31,6 +31,31 @@ describe('mapGoogleError', () => {
     const error = mapGoogleError(500, 'x'.repeat(5000));
     expect(error.message.length).toBeLessThan(200);
   });
+
+  it('preserva o status/mensagem reais do Google no detail, sem descartar o erro', () => {
+    const error = mapGoogleError(
+      403,
+      '{"error":{"code":403,"message":"This API key is not authorized to use this service or API.","status":"PERMISSION_DENIED"}}',
+      'places.searchText',
+    );
+    expect(error.detail).toEqual({
+      api: 'places.searchText',
+      httpStatus: 403,
+      googleStatus: 'PERMISSION_DENIED',
+      googleMessage: 'This API key is not authorized to use this service or API.',
+    });
+  });
+
+  it('nunca inclui a API key no detail tecnico', () => {
+    process.env.GOOGLE_MAPS_API_KEY = 'chave-secreta-de-teste';
+    const error = mapGoogleError(
+      403,
+      '{"error":{"message":"key chave-secreta-de-teste is invalid","status":"PERMISSION_DENIED"}}',
+    );
+    expect(error.detail?.googleMessage).not.toContain('chave-secreta-de-teste');
+    expect(error.detail?.googleMessage).toContain('[REDACTED]');
+    delete process.env.GOOGLE_MAPS_API_KEY;
+  });
 });
 
 describe('retry', () => {

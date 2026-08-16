@@ -76,19 +76,36 @@ export type GoogleErrorCode =
   | 'NETWORK'
   | 'NOT_CONFIGURED';
 
+/** Qual chamada gerou o erro — essencial para diagnosticar (SPEC 1.1 §57). */
+export type GoogleApiName = 'places.searchText' | 'geocode';
+
+/**
+ * Diagnostico tecnico do erro: exatamente o que o Google respondeu.
+ * Nunca contem a API key nem qualquer outro segredo.
+ */
+export type GoogleErrorDetail = {
+  api: GoogleApiName;
+  httpStatus: number;
+  /** Campo `error.status` (Places) ou `status` (Geocoding) devolvido pelo Google. */
+  googleStatus: string | null;
+  /** Campo `error.message` (Places) ou `error_message` (Geocoding) devolvido pelo Google. */
+  googleMessage: string | null;
+};
+
 /** Erro com mensagem pronta para o usuario final (SPEC 38 / SPEC 1.1 §55). */
 export class GooglePlacesError extends Error {
   readonly code: GoogleErrorCode;
   readonly retryable: boolean;
-  readonly cause?: unknown;
+  /** Diagnostico tecnico bruto do Google — ausente para NOT_CONFIGURED. */
+  readonly detail: GoogleErrorDetail | null;
 
-  constructor(code: GoogleErrorCode, message: string, cause?: unknown) {
+  constructor(code: GoogleErrorCode, message: string, detail: GoogleErrorDetail | null = null) {
     super(message);
     this.name = 'GooglePlacesError';
     this.code = code;
     // Apenas erros transitorios podem ser repetidos (SPEC 1.1 §56).
     this.retryable = code === 'INTERNAL' || code === 'NETWORK' || code === 'RESOURCE_EXHAUSTED';
-    this.cause = cause;
+    this.detail = detail;
   }
 }
 
@@ -105,9 +122,46 @@ const ERROR_MESSAGES: Record<GoogleErrorCode, string> = {
     'A chave do Google Maps nao esta configurada. Defina GOOGLE_MAPS_API_KEY no ambiente.',
 };
 
-/** Traduz status HTTP + corpo da resposta em um codigo conhecido. */
-export function mapGoogleError(status: number, body: string): GooglePlacesError {
-  const upper = body.toUpperCase();
+/** Remove a API key de qualquer texto antes de logar (SPEC 1.1 §57: nunca registrar segredos). */
+function redactSecrets(text: string): string {
+  const key = serverGoogleMapsKey();
+  return key && text.includes(key) ? text.split(key).join('[REDACTED]') : text;
+}
+
+/** Extrai `error.status`/`error.message` do corpo JSON de erro da Places API (New). */
+function parsePlacesErrorBody(body: string): { status: string | null; message: string | null } {
+  try {
+    const parsed = JSON.parse(body) as { error?: { status?: string; message?: string } };
+    return {
+      status: parsed.error?.status ?? null,
+      message: parsed.error?.message ? redactSecrets(parsed.error.message) : null,
+    };
+  } catch {
+    return { status: null, message: null };
+  }
+}
+
+/**
+ * Log tecnico estruturado (SPEC 1.1 §57): qual API, status HTTP, status/mensagem do Google.
+ * Nunca inclui GOOGLE_MAPS_API_KEY nem qualquer outro segredo.
+ */
+function logGoogleApiError(detail: GoogleErrorDetail): void {
+  console.error('[google-api] erro', {
+    api: detail.api,
+    httpStatus: detail.httpStatus,
+    googleStatus: detail.googleStatus,
+    googleMessage: detail.googleMessage,
+  });
+}
+
+/** Traduz status HTTP + corpo da resposta da Places API (New) em um codigo conhecido. */
+export function mapGoogleError(
+  status: number,
+  body: string,
+  api: GoogleApiName = 'places.searchText',
+): GooglePlacesError {
+  const { status: googleStatus, message: googleMessage } = parsePlacesErrorBody(body);
+  const upper = (googleStatus ?? body).toUpperCase();
 
   const detected: GoogleErrorCode | null =
     upper.includes('RESOURCE_EXHAUSTED') || status === 429
@@ -125,7 +179,36 @@ export function mapGoogleError(status: number, body: string): GooglePlacesError 
                 : null;
 
   const code = detected ?? 'INTERNAL';
-  return new GooglePlacesError(code, ERROR_MESSAGES[code], body.slice(0, 500));
+  const detail: GoogleErrorDetail = { api, httpStatus: status, googleStatus, googleMessage };
+  logGoogleApiError(detail);
+
+  return new GooglePlacesError(code, ERROR_MESSAGES[code], detail);
+}
+
+/** Mapa dos status da Geocoding API (`data.status`) para os codigos internos (SPEC 1.1 §55). */
+const GEOCODE_STATUS_TO_CODE: Partial<Record<string, GoogleErrorCode>> = {
+  REQUEST_DENIED: 'PERMISSION_DENIED',
+  OVER_QUERY_LIMIT: 'RESOURCE_EXHAUSTED',
+  OVER_DAILY_LIMIT: 'RESOURCE_EXHAUSTED',
+  INVALID_REQUEST: 'INVALID_ARGUMENT',
+  UNKNOWN_ERROR: 'INTERNAL',
+};
+
+/**
+ * Traduz o `status` (200 OK com corpo de erro — formato proprio da Geocoding API,
+ * diferente do formato HTTP-error da Places API New) em um codigo conhecido.
+ */
+function mapGeocodeStatus(status: string, errorMessage: string | undefined): GooglePlacesError {
+  const code = GEOCODE_STATUS_TO_CODE[status] ?? 'INTERNAL';
+  const detail: GoogleErrorDetail = {
+    api: 'geocode',
+    httpStatus: 200,
+    googleStatus: status,
+    googleMessage: errorMessage ? redactSecrets(errorMessage) : null,
+  };
+  logGoogleApiError(detail);
+
+  return new GooglePlacesError(code, ERROR_MESSAGES[code], detail);
 }
 
 /** Numero maximo de tentativas por chamada — nunca retry infinito (SPEC 1.1 §56). */
@@ -181,25 +264,30 @@ export async function geocodeLocation(params: {
     try {
       res = await fetch(url, { cache: 'no-store' });
     } catch (error) {
-      throw new GooglePlacesError('NETWORK', ERROR_MESSAGES.NETWORK, error);
+      const detail: GoogleErrorDetail = {
+        api: 'geocode',
+        httpStatus: 0,
+        googleStatus: null,
+        googleMessage: error instanceof Error ? redactSecrets(error.message) : 'falha de rede',
+      };
+      logGoogleApiError(detail);
+      throw new GooglePlacesError('NETWORK', ERROR_MESSAGES.NETWORK, detail);
     }
-    if (!res.ok) throw mapGoogleError(res.status, await res.text());
+    // A Geocoding API quase sempre responde 200; erros de permissao/quota vem no corpo (abaixo).
+    if (!res.ok) throw mapGoogleError(res.status, await res.text(), 'geocode');
     return res;
   });
 
   const data = (await response.json()) as {
     status?: string;
+    error_message?: string;
     results?: { geometry?: { location?: { lat?: number; lng?: number } } }[];
   };
 
   if (data.status === 'ZERO_RESULTS' || !data.results?.length) return null;
 
-  if (data.status !== 'OK') {
-    throw new GooglePlacesError(
-      'INVALID_ARGUMENT',
-      'Nao foi possivel localizar a cidade informada. Revise cidade e estado.',
-      data.status,
-    );
+  if (data.status && data.status !== 'OK') {
+    throw mapGeocodeStatus(data.status, data.error_message);
   }
 
   const loc = data.results[0]?.geometry?.location;
@@ -259,9 +347,16 @@ async function fetchTextSearchPage(
         cache: 'no-store',
       });
     } catch (error) {
-      throw new GooglePlacesError('NETWORK', ERROR_MESSAGES.NETWORK, error);
+      const detail: GoogleErrorDetail = {
+        api: 'places.searchText',
+        httpStatus: 0,
+        googleStatus: null,
+        googleMessage: error instanceof Error ? redactSecrets(error.message) : 'falha de rede',
+      };
+      logGoogleApiError(detail);
+      throw new GooglePlacesError('NETWORK', ERROR_MESSAGES.NETWORK, detail);
     }
-    if (!res.ok) throw mapGoogleError(res.status, await res.text());
+    if (!res.ok) throw mapGoogleError(res.status, await res.text(), 'places.searchText');
     return res;
   });
 
