@@ -3,6 +3,8 @@ import 'server-only';
 import { createClient } from '@/lib/supabase/server';
 import {
   digitalPresenceTtlDays,
+  foursquareEnabled,
+  googlePlacesEnabled,
   instagramSearchEnv,
   isSupabaseConfigured,
   serverGoogleMapsKey,
@@ -92,16 +94,36 @@ async function checkSupabase(): Promise<HealthCheck[]> {
   return checks;
 }
 
-/** Consulta minima e barata so para confirmar que a API responde. */
-async function checkGoogle(): Promise<HealthCheck[]> {
+/**
+ * Consulta minima e barata so para confirmar que a API responde.
+ *
+ * SPEC 1.2 §17/§22/§74: Google e paga e desativada por padrao. A presenca de
+ * `GOOGLE_MAPS_API_KEY` no ambiente NAO autoriza nenhuma chamada — sem isso, uma
+ * chave esquecida faria este health check gerar cobranca real a cada visita a
+ * pagina, so por existir. So chama a API de verdade quando `GOOGLE_PLACES_ENABLED`
+ * esta explicitamente ligado.
+ */
+export async function checkGoogle(): Promise<HealthCheck[]> {
   const key = serverGoogleMapsKey();
+
+  if (!googlePlacesEnabled()) {
+    return [
+      {
+        name: 'Google Places',
+        level: 'ok',
+        detail: key
+          ? 'Desativado por padrao (GOOGLE_PLACES_ENABLED=false ou ausente). A chave esta configurada, mas nenhuma chamada e feita — o modo gratuito usa OpenStreetMap.'
+          : 'Desativado por padrao (GOOGLE_PLACES_ENABLED=false ou ausente). O modo gratuito usa OpenStreetMap.',
+      },
+    ];
+  }
 
   if (!key) {
     return [
       {
         name: 'Google Places',
         level: 'fail',
-        detail: 'GOOGLE_MAPS_API_KEY nao configurada. A prospeccao real nao funciona sem ela.',
+        detail: 'GOOGLE_PLACES_ENABLED=true, mas GOOGLE_MAPS_API_KEY nao esta configurada.',
       },
     ];
   }
@@ -140,6 +162,28 @@ async function checkGoogle(): Promise<HealthCheck[]> {
   return checks;
 }
 
+/**
+ * Foursquare nao tem adaptador ainda (SPEC 1.2 §19/§57) — so a capacidade arquitetural
+ * existe (lib/prospecting/sources/types.ts). Este check nunca faz nenhuma chamada de
+ * rede: nao ha o que chamar, e `FOURSQUARE_ENABLED` segue a mesma regra de opt-in
+ * explicito do Google (ausente ou != "true" mantem desligado).
+ */
+export function checkFoursquare(): HealthCheck {
+  if (!foursquareEnabled()) {
+    return {
+      name: 'Foursquare',
+      level: 'ok',
+      detail: 'Nao implementado ainda; capacidade arquitetural apenas (desativado por padrao).',
+    };
+  }
+
+  return {
+    name: 'Foursquare',
+    level: 'warn',
+    detail: 'FOURSQUARE_ENABLED=true, mas a integracao ainda nao foi implementada. Nenhuma chamada e feita.',
+  };
+}
+
 function checkInstagram(): HealthCheck {
   const { cx, key } = instagramSearchEnv();
 
@@ -165,6 +209,7 @@ export async function runHealthChecks(): Promise<HealthCheck[]> {
   return [
     ...supabase,
     ...google,
+    checkFoursquare(),
     checkInstagram(),
     {
       name: 'Cache de presenca digital',

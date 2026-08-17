@@ -230,9 +230,10 @@ describe('runProspecting — pesquisa OSM (SPEC 1.2 §7/§74)', () => {
   });
 });
 
-describe('runProspecting — fonte Google desativada / ausencia de chamada Google (SPEC 1.2 §22/§74)', () => {
+describe('runProspecting — fonte Google desativada / ausencia de chamada Google (SPEC 1.2 §22/§74, FASE 5)', () => {
   const originalFetch = global.fetch;
   const originalEnabled = process.env.GOOGLE_PLACES_ENABLED;
+  const originalKey = process.env.GOOGLE_MAPS_API_KEY;
 
   beforeEach(() => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -242,6 +243,7 @@ describe('runProspecting — fonte Google desativada / ausencia de chamada Googl
   afterEach(() => {
     global.fetch = originalFetch;
     process.env.GOOGLE_PLACES_ENABLED = originalEnabled;
+    process.env.GOOGLE_MAPS_API_KEY = originalKey;
     vi.restoreAllMocks();
   });
 
@@ -261,6 +263,39 @@ describe('runProspecting — fonte Google desativada / ausencia de chamada Googl
       (c) => c.op === 'upsert' && (c.args as { onConflict: string }).onConflict === 'user_id,google_place_id',
     );
     expect(googleUpsert).toBeUndefined();
+  });
+
+  it('GOOGLE_MAPS_API_KEY presente sem GOOGLE_PLACES_ENABLED continua sem nenhuma chamada Google', async () => {
+    delete process.env.GOOGLE_PLACES_ENABLED;
+    process.env.GOOGLE_MAPS_API_KEY = 'a-real-looking-key';
+    const searchSpy = vi.spyOn(googlePlacesSource, 'search');
+    const fetchMock = mockOsmRoundTrip([overpassElement(1, 'Padaria Central')]);
+    const { client } = createSupabaseStub();
+
+    await collectEvents(client, 'user-1', BASE_INPUT);
+
+    expect(searchSpy).not.toHaveBeenCalled();
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('googleapis.com'))).toBe(false);
+  });
+
+  it('OSM falhando nao dispara fallback automatico para o Google (SPEC 1.2 regra 6)', async () => {
+    process.env.GOOGLE_PLACES_ENABLED = 'true';
+    process.env.GOOGLE_MAPS_API_KEY = 'a-real-looking-key';
+    const searchSpy = vi.spyOn(googlePlacesSource, 'search');
+    // Nominatim falha logo na primeira chamada: OSM e a unica fonte selecionada e ela cai por inteiro.
+    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 503 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { client } = createSupabaseStub();
+
+    const events = await collectEvents(client, 'user-1', BASE_INPUT);
+
+    expect(searchSpy).not.toHaveBeenCalled();
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('googleapis.com'))).toBe(false);
+    // A falha e reportada com honestidade, nao escondida atras de um fallback silencioso.
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+    expect(events.some((e) => e.type === 'done')).toBe(false);
   });
 });
 
