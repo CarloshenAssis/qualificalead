@@ -89,3 +89,60 @@ export function instagramSearchEnv(): { cx: string | null; key: string | null } 
     key: process.env.GOOGLE_CSE_API_KEY?.trim() || null,
   };
 }
+
+// --- Multi-source (SPEC 1.2 §54) -------------------------------------------
+
+/** Interpreta uma flag textual. Ausente ou qualquer coisa != "true" significa desligado. */
+function envFlag(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === 'true';
+}
+
+/**
+ * Google Places so e consultado com opt-in explicito (SPEC 1.2 §17/§56).
+ * A simples presenca de GOOGLE_MAPS_API_KEY nao autoriza chamadas — isso e proposital:
+ * evita que uma chave esquecida no ambiente gere cobranca sem o usuario pedir.
+ */
+export function googlePlacesEnabled(): boolean {
+  return envFlag(process.env.GOOGLE_PLACES_ENABLED);
+}
+
+/** Foursquare segue a mesma regra de opt-in (SPEC 1.2 §19/§57). */
+export function foursquareEnabled(): boolean {
+  return envFlag(process.env.FOURSQUARE_ENABLED);
+}
+
+export const DEFAULT_OVERPASS_API_URL = 'https://overpass-api.de/api/interpreter';
+
+/** Endpoint do Overpass — configuravel para permitir trocar de servidor (SPEC 1.2 §8). */
+export function overpassApiUrl(): string {
+  return process.env.OVERPASS_API_URL?.trim() || DEFAULT_OVERPASS_API_URL;
+}
+
+export const DEFAULT_OVERPASS_TIMEOUT_MS = 30_000;
+
+export function overpassTimeoutMs(): number {
+  const raw = Number(process.env.OVERPASS_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_OVERPASS_TIMEOUT_MS;
+}
+
+export const DEFAULT_OVERPASS_CACHE_TTL_HOURS = 24;
+
+export function overpassCacheTtlHours(): number {
+  const raw = Number(process.env.OVERPASS_CACHE_TTL_HOURS);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_OVERPASS_CACHE_TTL_HOURS;
+}
+
+/** Endpoint do Nominatim, usado para achar a bounding box da cidade (SPEC 1.2 §9/§10). */
+export const DEFAULT_NOMINATIM_API_URL = 'https://nominatim.openstreetmap.org/search';
+
+export function nominatimApiUrl(): string {
+  return process.env.NOMINATIM_API_URL?.trim() || DEFAULT_NOMINATIM_API_URL;
+}
+
+/**
+ * User-Agent identificavel, exigido pela politica de uso do Nominatim.
+ * Sem isso as requisicoes sao bloqueadas.
+ */
+export function osmUserAgent(): string {
+  return process.env.OSM_USER_AGENT?.trim() || 'LeadHunter/1.2 (prospeccao comercial)';
+}
