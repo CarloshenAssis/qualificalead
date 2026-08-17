@@ -78,6 +78,17 @@ do $$ begin
   end if;
 end $$;
 
+-- Fecha a lacuna que a unique acima deixa aberta: com source_id NULL, nada impede hoje
+-- duas linhas LEGACY para a mesma empresa (NULL nunca conflita com NULL). O backfill e
+-- idempotente por causa do NOT EXISTS na secao 5, mas isso so protege ESTE script — nao
+-- impede um bug futuro em outro caminho de codigo de inserir uma segunda linha LEGACY
+-- para a mesma empresa. Esta e a proteção estrutural, no banco: LEGACY vira, na pratica,
+-- "no maximo um registro por empresa", exatamente como Google/OSM/Foursquare sao
+-- "no maximo um registro por empresa e por source_id".
+create unique index if not exists lead_sources_one_legacy_per_company
+  on lead_sources (user_id, company_id)
+  where source = 'LEGACY';
+
 create index if not exists lead_sources_user_idx on lead_sources (user_id);
 create index if not exists lead_sources_company_idx on lead_sources (company_id);
 
