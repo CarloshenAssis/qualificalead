@@ -14,7 +14,14 @@ import type { RawBusiness, SourceId } from './types';
  */
 export type NormalizedBusiness = {
   source: SourceId;
-  sourceId: string;
+  /**
+   * `null` apenas para `LEGACY` reconstruido a partir de uma empresa salva sem origem
+   * externa conhecida (`lib/prospecting/run.ts`, `companyToBusiness`) — nunca para um
+   * resultado de busca real, que sempre tem um id da propria fonte (garantido abaixo).
+   * Nunca preencher com um id interno (ex.: `company.id`) so para evitar `null`: isso
+   * faria o sistema tratar um identificador interno como se fosse externo.
+   */
+  sourceId: string | null;
   name: string;
   category: string | null;
   categories: string[] | null;

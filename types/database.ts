@@ -254,7 +254,8 @@ export type LeadSource = {
   user_id: string;
   company_id: string;
   source: SourceId;
-  source_id: string;
+  /** `null` apenas para `LEGACY` sem origem conhecida — nunca um id interno disfarcado. */
+  source_id: string | null;
   source_url: string | null;
   source_quality: SourceQualityLevel | null;
   raw_data: Record<string, unknown>;

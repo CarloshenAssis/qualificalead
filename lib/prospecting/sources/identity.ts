@@ -46,7 +46,7 @@ export async function loadCompanySources(
  */
 export function inferCompanySource(
   company: Pick<Company, 'source_data' | 'google_place_id'>,
-): { source: SourceId; sourceId: string } {
+): { source: SourceId; sourceId: string | null } {
   const sourceData = company.source_data as { source?: SourceId; source_id?: string } | null;
   if (sourceData?.source && sourceData.source_id) {
     return { source: sourceData.source, sourceId: sourceData.source_id };
@@ -54,5 +54,7 @@ export function inferCompanySource(
   if (company.google_place_id) {
     return { source: 'GOOGLE_PLACES', sourceId: company.google_place_id };
   }
-  return { source: 'LEGACY', sourceId: '' };
+  // Nunca usar um id interno (ex.: company.id) como se fosse um identificador externo:
+  // `LEGACY` sem origem conhecida realmente nao tem um source_id (SPEC 1.2 FASE 6).
+  return { source: 'LEGACY', sourceId: null };
 }

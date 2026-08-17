@@ -245,7 +245,8 @@ describe('LEGACY — leads sem origem registrada (SPEC 1.2 §76)', () => {
   it('empresa sem source_data e sem google_place_id nunca tem origem inferida: vira LEGACY', () => {
     const { source, sourceId } = inferCompanySource({ source_data: null, google_place_id: null });
     expect(source).toBe('LEGACY');
-    expect(sourceId).toBe('');
+    // Nunca um id interno (company.id) fingindo ser um id externo (SPEC 1.2 FASE 6).
+    expect(sourceId).toBeNull();
   });
 
   it('empresa com google_place_id (todo lead da 1.1) e reconhecida como GOOGLE_PLACES, preservando o id', () => {

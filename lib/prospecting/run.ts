@@ -742,7 +742,9 @@ function companyToBusiness(company: Company): NormalizedBusiness {
 
   return {
     source,
-    sourceId: sourceId || company.id,
+    // Nunca usar company.id como source_id: e um identificador interno, nao um id da
+    // fonte externa (SPEC 1.2 FASE 6). LEGACY sem origem conhecida fica genuinamente null.
+    sourceId,
     name: company.name,
     category: company.category,
     categories: company.categories,

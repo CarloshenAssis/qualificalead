@@ -36,9 +36,11 @@ create table if not exists lead_sources (
   user_id uuid not null references auth.users (id) on delete cascade,
   company_id uuid not null,
   source lead_source_type not null,
-  -- Id do registro dentro da fonte (place_id do Google, "node/123" do OSM). Para LEGACY
-  -- sem id externo real, o backfill usa o proprio company_id como placeholder estavel.
-  source_id text not null,
+  -- Id do registro dentro da fonte (place_id do Google, "node/123" do OSM). NULL para
+  -- LEGACY sem origem conhecida: nunca usamos um id interno (ex.: company_id) como se
+  -- fosse um identificador externo da fonte — se nao ha id externo real, o campo fica
+  -- vazio de verdade, nao um substituto sintetico disfarcado de dado externo.
+  source_id text,
   source_url text,
   source_quality source_quality_level,
   raw_data jsonb not null default '{}'::jsonb,
@@ -53,6 +55,11 @@ create table if not exists lead_sources (
 -- Como consequencia, tambem impede a duplicata literal que a SPEC pede bloquear
 -- ("mesmo lead + mesma fonte + mesmo source_id") e permite livremente
 -- "lead A + OSM + id X" e "lead A + Google + id Y" (tuplas diferentes).
+-- source_id NULL (LEGACY sem origem conhecida) nao e coberto por esta constraint: o
+-- padrao SQL trata cada NULL como distinto dos demais, entao duas linhas LEGACY do
+-- mesmo usuario nunca conflitam entre si aqui — o que e correto, ja que elas
+-- genuinamente nao tem um id externo comparavel. O backfill (secao 5) usa sua propria
+-- checagem de idempotencia para esse caso, via NOT EXISTS com IS NOT DISTINCT FROM.
 -- ADD CONSTRAINT para UNIQUE cria um indice com o mesmo nome: numa segunda execucao o
 -- erro e "relation already exists" (42P07), nao duplicate_object (42710) — checar o
 -- catalogo antes evita depender de qual excecao cada tipo de constraint dispara.
@@ -168,36 +175,49 @@ create trigger discovery_cache_set_updated_at
 --     OpenStreetMap), usa exatamente o que foi gravado;
 --   - senao, se houver google_place_id (todo lead da 1.1), vira GOOGLE_PLACES
 --     preservando o place_id original;
---   - senao, vira LEGACY, com o proprio id da empresa como source_id (nao ha id
---     externo real para preservar, e a origem nao pode ser adivinhada).
--- Idempotente: on conflict do nothing, seguro para rodar de novo por engano.
+--   - senao, vira LEGACY com source_id NULL — nao ha id externo real para preservar,
+--     a origem nao pode ser adivinhada, e um id interno (company_id) nunca deve se
+--     passar por um identificador externo da fonte.
+--
+-- Idempotencia: NOT EXISTS com IS NOT DISTINCT FROM em vez de ON CONFLICT, porque
+-- source_id pode ser NULL (LEGACY) e a constraint unique (secao 2) nao cobre esse caso
+-- — dois NULLs nunca "conflitam" entre si no SQL padrao, entao ON CONFLICT DO NOTHING
+-- sozinho inseriria uma linha LEGACY nova a cada execucao. Esta checagem compara
+-- explicitamente a linha que SERIA inserida contra o que ja existe, tratando NULL
+-- corretamente, e por isso e segura para rodar mais de uma vez.
 
+with resolved as (
+  select
+    c.id as company_id,
+    c.user_id,
+    case
+      when c.source_data ? 'source'
+        and c.source_data ->> 'source' in ('OPENSTREETMAP', 'GOOGLE_PLACES', 'FOURSQUARE', 'LEGACY')
+        then (c.source_data ->> 'source')::lead_source_type
+      when c.google_place_id is not null then 'GOOGLE_PLACES'::lead_source_type
+      else 'LEGACY'::lead_source_type
+    end as source,
+    nullif(coalesce(nullif(c.source_data ->> 'source_id', ''), c.google_place_id), '') as source_id,
+    c.google_maps_url as source_url,
+    coalesce(c.source_data, '{}'::jsonb) as raw_data,
+    coalesce(c.created_at, now()) as first_seen_at,
+    coalesce(c.last_checked_at, c.updated_at, c.created_at, now()) as last_seen_at
+  from companies c
+)
 insert into lead_sources (
   user_id, company_id, source, source_id, source_url, source_quality, raw_data,
   first_seen_at, last_seen_at
 )
 select
-  c.user_id,
-  c.id,
-  case
-    when c.source_data ? 'source'
-      and c.source_data ->> 'source' in ('OPENSTREETMAP', 'GOOGLE_PLACES', 'FOURSQUARE', 'LEGACY')
-      then (c.source_data ->> 'source')::lead_source_type
-    when c.google_place_id is not null then 'GOOGLE_PLACES'::lead_source_type
-    else 'LEGACY'::lead_source_type
-  end as source,
-  coalesce(
-    nullif(c.source_data ->> 'source_id', ''),
-    c.google_place_id,
-    c.id::text
-  ) as source_id,
-  c.google_maps_url,
-  null::source_quality_level,
-  coalesce(c.source_data, '{}'::jsonb),
-  coalesce(c.created_at, now()),
-  coalesce(c.last_checked_at, c.updated_at, c.created_at, now())
-from companies c
-on conflict (user_id, source, source_id) do nothing;
+  r.user_id, r.company_id, r.source, r.source_id, r.source_url,
+  null::source_quality_level, r.raw_data, r.first_seen_at, r.last_seen_at
+from resolved r
+where not exists (
+  select 1 from lead_sources ls
+  where ls.company_id = r.company_id
+    and ls.source = r.source
+    and ls.source_id is not distinct from r.source_id
+);
 
 -- 6. Row Level Security ---------------------------------------------------------
 -- Mesmo padrao de 0001/0002: cada usuario enxerga e altera apenas os proprios
