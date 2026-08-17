@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProspectingSearchInput } from '@/lib/validation/schemas';
 import { runProspecting, buildCompanyRow } from '@/lib/prospecting/run';
 import { googlePlacesSource } from '@/lib/prospecting/sources/google';
 import { computeOpportunityScore } from '@/lib/scoring/score';
 import { SOURCE_CAPABILITIES } from '@/lib/prospecting/sources/types';
 import { discoverInstagram } from '@/lib/instagram/discover';
-import { buildDedupKey } from '@/lib/prospecting/sources/dedupe';
+import { createSupabaseMock, type Row } from './helpers/supabase-mock';
 
 vi.mock('@/lib/instagram/discover', () => ({
   discoverInstagram: vi.fn().mockResolvedValue({
@@ -69,89 +68,6 @@ function mockOsmRoundTrip(elements: unknown[]) {
   return fetchMock;
 }
 
-type MockResponse<T> = { data: T | null; error: { code?: string; message?: string } | null };
-type RecordedCall = { table: string; op: string; args: unknown };
-
-function createSupabaseStub(
-  config: {
-    existingByPlaceId?: unknown[];
-    existingByDedupKey?: unknown[];
-    upsertGoogleResult?: MockResponse<unknown[]>;
-    upsertOtherResult?: MockResponse<unknown[]>;
-  } = {},
-) {
-  const calls: RecordedCall[] = [];
-
-  function companiesTable() {
-    return {
-      select() {
-        return {
-          eq() {
-            return {
-              in(column: string, values: string[]) {
-                calls.push({ table: 'companies', op: 'select.in', args: { column, values } });
-                const data =
-                  column === 'google_place_id'
-                    ? (config.existingByPlaceId ?? [])
-                    : (config.existingByDedupKey ?? []);
-                return Promise.resolve({ data, error: null });
-              },
-            };
-          },
-        };
-      },
-      upsert(rows: Array<Record<string, unknown>>, opts: { onConflict: string }) {
-        calls.push({ table: 'companies', op: 'upsert', args: { onConflict: opts.onConflict, rows } });
-        return {
-          select() {
-            const isGoogle = opts.onConflict.includes('google_place_id');
-            const configured = isGoogle ? config.upsertGoogleResult : config.upsertOtherResult;
-            const data =
-              configured?.data ??
-              rows.map((row, i) => ({
-                id: `${isGoogle ? 'g' : 'o'}-${i}`,
-                opportunity_level: row.opportunity_level,
-                website_status: row.website_status,
-              }));
-            return Promise.resolve(configured ?? { data, error: null });
-          },
-        };
-      },
-    };
-  }
-
-  function searchesTable() {
-    return {
-      insert(row: Record<string, unknown>) {
-        calls.push({ table: 'prospecting_searches', op: 'insert', args: row });
-        return {
-          select() {
-            return { single: () => Promise.resolve({ data: { id: 'search-1' }, error: null }) };
-          },
-        };
-      },
-    };
-  }
-
-  function hitsTable() {
-    return {
-      upsert(rows: unknown[]) {
-        calls.push({ table: 'company_search_hits', op: 'upsert', args: rows });
-        return Promise.resolve({ data: null, error: null });
-      },
-    };
-  }
-
-  const from = vi.fn((table: string) => {
-    if (table === 'companies') return companiesTable();
-    if (table === 'prospecting_searches') return searchesTable();
-    if (table === 'company_search_hits') return hitsTable();
-    throw new Error(`tabela nao mockada: ${table}`);
-  });
-
-  return { client: { from } as unknown as SupabaseClient, calls };
-}
-
 const BASE_INPUT: ProspectingSearchInput = {
   segment: 'padaria',
   city: 'Sao Jose dos Campos',
@@ -160,13 +76,9 @@ const BASE_INPUT: ProspectingSearchInput = {
   limit: 20,
 };
 
-async function collectEvents(
-  supabase: SupabaseClient,
-  userId: string,
-  input: ProspectingSearchInput,
-) {
+async function collectEvents(client: ReturnType<typeof createSupabaseMock>['client'], userId: string, input: ProspectingSearchInput) {
   const events = [];
-  for await (const event of runProspecting(supabase, userId, input)) {
+  for await (const event of runProspecting(client, userId, input)) {
     events.push(event);
   }
   return events;
@@ -174,7 +86,6 @@ async function collectEvents(
 
 describe('runProspecting — pesquisa OSM (SPEC 1.2 §7/§74)', () => {
   const originalFetch = global.fetch;
-  const originalEnabled = process.env.GOOGLE_PLACES_ENABLED;
 
   beforeEach(() => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -183,13 +94,12 @@ describe('runProspecting — pesquisa OSM (SPEC 1.2 §7/§74)', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
-    process.env.GOOGLE_PLACES_ENABLED = originalEnabled;
     vi.restoreAllMocks();
   });
 
-  it('busca no OpenStreetMap, normaliza, pontua e salva via dedup_key', async () => {
+  it('busca no OpenStreetMap, normaliza, pontua e salva com uma linha em lead_sources', async () => {
     mockOsmRoundTrip([overpassElement(1, 'Padaria Central', { phone: '(12) 3921-0000' })]);
-    const { client, calls } = createSupabaseStub();
+    const { client, tables } = createSupabaseMock();
 
     const events = await collectEvents(client, 'user-1', BASE_INPUT);
 
@@ -198,20 +108,25 @@ describe('runProspecting — pesquisa OSM (SPEC 1.2 §7/§74)', () => {
     if (done?.type !== 'done') throw new Error('esperava evento done');
     expect(done.summary.found).toBe(1);
     expect(done.summary.saved).toBe(1);
+    expect(done.summary.newCompanies).toBe(1);
     expect(done.summary.status).toBe('COMPLETED');
 
-    const upsertCall = calls.find((c) => c.op === 'upsert');
-    expect(upsertCall).toBeDefined();
-    const args = upsertCall!.args as { onConflict: string; rows: Array<Record<string, unknown>> };
-    // OSM nao tem google_place_id: a identidade de persistencia e o dedup_key (SPEC 1.2 §22).
-    expect(args.onConflict).toBe('user_id,dedup_key');
-    expect(args.rows[0].google_place_id).toBeNull();
-    expect(args.rows[0].name).toBe('Padaria Central');
+    expect(tables.companies).toHaveLength(1);
+    expect(tables.companies[0].name).toBe('Padaria Central');
+    // OSM nao usa google_place_id como identidade (SPEC 1.2 FASE 6).
+    expect(tables.companies[0].google_place_id).toBeNull();
+
+    expect(tables.lead_sources).toHaveLength(1);
+    expect(tables.lead_sources[0]).toMatchObject({
+      source: 'OPENSTREETMAP',
+      source_id: 'node/1',
+      company_id: tables.companies[0].id,
+    });
   });
 
   it('emite os estagios do pipeline na ordem esperada', async () => {
     mockOsmRoundTrip([overpassElement(1, 'Padaria Central')]);
-    const { client } = createSupabaseStub();
+    const { client } = createSupabaseMock();
 
     const events = await collectEvents(client, 'user-1', BASE_INPUT);
     const stages = events.filter((e) => e.type === 'stage').map((e) => (e as { stage: string }).stage);
@@ -221,7 +136,7 @@ describe('runProspecting — pesquisa OSM (SPEC 1.2 §7/§74)', () => {
 
   it('nao chama nenhum endpoint do Google quando o modo e FREE (SPEC 1.2 §74)', async () => {
     const fetchMock = mockOsmRoundTrip([overpassElement(1, 'Padaria Central')]);
-    const { client } = createSupabaseStub();
+    const { client } = createSupabaseMock();
 
     await collectEvents(client, 'user-1', BASE_INPUT);
 
@@ -251,18 +166,14 @@ describe('runProspecting — fonte Google desativada / ausencia de chamada Googl
     process.env.GOOGLE_PLACES_ENABLED = 'true';
     const searchSpy = vi.spyOn(googlePlacesSource, 'search');
     const fetchMock = mockOsmRoundTrip([overpassElement(1, 'Padaria Central')]);
-    const { client, calls } = createSupabaseStub();
+    const { client, tables } = createSupabaseMock();
 
     await collectEvents(client, 'user-1', BASE_INPUT);
 
     expect(searchSpy).not.toHaveBeenCalled();
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls.some((url) => url.includes('googleapis.com'))).toBe(false);
-    // Sem lead do Google, o upsert com onConflict de google_place_id nunca acontece.
-    const googleUpsert = calls.find(
-      (c) => c.op === 'upsert' && (c.args as { onConflict: string }).onConflict === 'user_id,google_place_id',
-    );
-    expect(googleUpsert).toBeUndefined();
+    expect(tables.lead_sources.every((r) => r.source !== 'GOOGLE_PLACES')).toBe(true);
   });
 
   it('GOOGLE_MAPS_API_KEY presente sem GOOGLE_PLACES_ENABLED continua sem nenhuma chamada Google', async () => {
@@ -270,7 +181,7 @@ describe('runProspecting — fonte Google desativada / ausencia de chamada Googl
     process.env.GOOGLE_MAPS_API_KEY = 'a-real-looking-key';
     const searchSpy = vi.spyOn(googlePlacesSource, 'search');
     const fetchMock = mockOsmRoundTrip([overpassElement(1, 'Padaria Central')]);
-    const { client } = createSupabaseStub();
+    const { client } = createSupabaseMock();
 
     await collectEvents(client, 'user-1', BASE_INPUT);
 
@@ -286,7 +197,7 @@ describe('runProspecting — fonte Google desativada / ausencia de chamada Googl
     // Nominatim falha logo na primeira chamada: OSM e a unica fonte selecionada e ela cai por inteiro.
     const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 503 }));
     global.fetch = fetchMock as unknown as typeof fetch;
-    const { client } = createSupabaseStub();
+    const { client } = createSupabaseMock();
 
     const events = await collectEvents(client, 'user-1', BASE_INPUT);
 
@@ -317,16 +228,15 @@ describe('runProspecting — deduplicacao (SPEC 1.2 §18/§22)', () => {
       overpassElement(1, 'Padaria Central', { phone: '(12) 3921-0000', 'addr:street': 'Rua A' }),
       overpassElement(2, 'Padaria Central', { phone: '(12) 3921-0000', 'addr:street': 'Rua A' }),
     ]);
-    const { client, calls } = createSupabaseStub();
+    const { client, tables } = createSupabaseMock();
 
     const events = await collectEvents(client, 'user-1', BASE_INPUT);
     const done = events.find((e) => e.type === 'done');
     if (done?.type !== 'done') throw new Error('esperava evento done');
 
     expect(done.summary.found).toBe(1);
-    const upsertCall = calls.find((c) => c.op === 'upsert');
-    const args = upsertCall!.args as { rows: unknown[] };
-    expect(args.rows).toHaveLength(1);
+    expect(tables.companies).toHaveLength(1);
+    expect(tables.lead_sources).toHaveLength(1);
   });
 });
 
@@ -345,13 +255,11 @@ describe('runProspecting — score relativo a fonte e source_coverage (SPEC 1.2 
 
   it('leads do OSM carregam source_data com source, source_id e source_coverage MEDIUM', async () => {
     mockOsmRoundTrip([overpassElement(1, 'Padaria Central', { phone: '(12) 3921-0000' })]);
-    const { client, calls } = createSupabaseStub();
+    const { client, tables } = createSupabaseMock();
 
     await collectEvents(client, 'user-1', BASE_INPUT);
 
-    const upsertCall = calls.find((c) => c.op === 'upsert');
-    const args = upsertCall!.args as { rows: Array<Record<string, unknown>> };
-    const row = args.rows[0];
+    const row = tables.companies[0];
     const sourceData = row.source_data as { source: string; source_id: string; source_coverage: { level: string } };
 
     expect(sourceData.source).toBe('OPENSTREETMAP');
@@ -363,13 +271,11 @@ describe('runProspecting — score relativo a fonte e source_coverage (SPEC 1.2 
 
   it('rating/reviews ausentes no OSM nao aparecem no breakdown nem penalizam o score', async () => {
     mockOsmRoundTrip([overpassElement(1, 'Padaria Central', { phone: '(12) 3921-0000' })]);
-    const { client, calls } = createSupabaseStub();
+    const { client, tables } = createSupabaseMock();
 
     await collectEvents(client, 'user-1', BASE_INPUT);
 
-    const upsertCall = calls.find((c) => c.op === 'upsert');
-    const row = (upsertCall!.args as { rows: Array<Record<string, unknown>> }).rows[0];
-    const breakdown = row.score_breakdown as Array<{ code: string }>;
+    const breakdown = tables.companies[0].score_breakdown as Array<{ code: string }>;
 
     expect(breakdown.some((b) => b.code === 'HIGH_RATING')).toBe(false);
     expect(breakdown.some((b) => b.code === 'REVIEW_COUNT')).toBe(false);
@@ -378,23 +284,21 @@ describe('runProspecting — score relativo a fonte e source_coverage (SPEC 1.2 
 
   it('OSM nunca vira LOW em google_business_quality (ajuste da FASE 4, SPEC 1.2 §34)', async () => {
     mockOsmRoundTrip([overpassElement(1, 'Padaria Central', { phone: '(12) 3921-0000' })]);
-    const { client, calls } = createSupabaseStub();
+    const { client, tables } = createSupabaseMock();
 
     await collectEvents(client, 'user-1', BASE_INPUT);
 
-    const upsertCall = calls.find((c) => c.op === 'upsert');
-    const row = (upsertCall!.args as { rows: Array<Record<string, unknown>> }).rows[0];
-
+    const row = tables.companies[0];
     expect(row.google_business_quality).toBe('NOT_APPLICABLE');
     // Este lead cai em LOW_PRIORITY porque o score (35) fica abaixo do limiar de baixa
     // prioridade — nao porque quality e NOT_APPLICABLE. O isolamento exato desse efeito
     // (mesma acao com HIGH e com NOT_APPLICABLE, mesmo score) esta em tests/qualification.test.ts.
-    expect(row.opportunity_score).toBeLessThan(40);
+    expect(row.opportunity_score as number).toBeLessThan(40);
     expect(row.next_action).toBe('LOW_PRIORITY');
   });
 });
 
-describe('runProspecting — empresa OSM ja conhecida (busca por dedup_key)', () => {
+describe('runProspecting — empresa OSM ja conhecida (match exato via lead_sources)', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
@@ -409,28 +313,31 @@ describe('runProspecting — empresa OSM ja conhecida (busca por dedup_key)', ()
 
   it('decisao humana (CONFIRMED) e preservada e o Instagram nao e reconsultado', async () => {
     mockOsmRoundTrip([overpassElement(1, 'Padaria Central', { phone: '(12) 3921-0000' })]);
-    const key = buildDedupKey({
+
+    const existingCompany: Row = {
+      id: 'existing-1',
+      user_id: 'user-1',
+      city: 'Sao Jose dos Campos',
       name: 'Padaria Central',
       phone: '(12) 3921-0000',
+      whatsapp: '5512392100000',
+      website: null,
       address: null,
       latitude: -23.2,
       longitude: -45.9,
-    });
-    const { client, calls } = createSupabaseStub({
-      existingByDedupKey: [
-        {
-          id: 'existing-1',
-          google_place_id: null,
-          dedup_key: key,
-          instagram_url: 'https://instagram.com/padariacentral',
-          instagram_handle: 'padariacentral',
-          instagram_confidence: 100,
-          instagram_status: 'CONFIRMED',
-          instagram_source: 'manual',
-          instagram_evidence: [],
-          instagram_checked_at: new Date().toISOString(),
-          last_checked_at: new Date().toISOString(),
-        },
+      instagram_url: 'https://instagram.com/padariacentral',
+      instagram_handle: 'padariacentral',
+      instagram_confidence: 100,
+      instagram_status: 'CONFIRMED',
+      instagram_source: 'manual',
+      instagram_evidence: [],
+      instagram_checked_at: new Date().toISOString(),
+      last_checked_at: new Date().toISOString(),
+    };
+    const { client, tables } = createSupabaseMock({
+      companies: [existingCompany],
+      lead_sources: [
+        { id: 'ls-1', user_id: 'user-1', company_id: 'existing-1', source: 'OPENSTREETMAP', source_id: 'node/1' },
       ],
     });
 
@@ -442,10 +349,9 @@ describe('runProspecting — empresa OSM ja conhecida (busca por dedup_key)', ()
     expect(done.summary.newCompanies).toBe(0);
     expect(vi.mocked(discoverInstagram)).not.toHaveBeenCalled();
 
-    const upsertCall = calls.find((c) => c.op === 'upsert');
-    const row = (upsertCall!.args as { rows: Array<Record<string, unknown>> }).rows[0];
-    expect(row.instagram_status).toBe('CONFIRMED');
-    expect(row.instagram_url).toBe('https://instagram.com/padariacentral');
+    expect(tables.companies).toHaveLength(1);
+    expect(tables.companies[0].instagram_status).toBe('CONFIRMED');
+    expect(tables.companies[0].instagram_url).toBe('https://instagram.com/padariacentral');
   });
 });
 
@@ -473,6 +379,7 @@ describe('buildCompanyRow — regressao do score do Google (SPEC 1.2 §35)', () 
       reviewCount: 183,
       openingHours: ['segunda: 09:00-18:00'],
       businessStatus: 'OPERATIONAL',
+      rawMetadata: null,
     };
 
     const outcome = {

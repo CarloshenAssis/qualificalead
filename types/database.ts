@@ -1,7 +1,10 @@
 /**
  * Tipos do dominio + shape das tabelas (SPEC 17).
- * Espelha `database/migrations/0001_init.sql`.
+ * Espelha `database/migrations/0001_init.sql`, `0002_hardening.sql`, `0003_google_business_quality.sql`
+ * e `0004_multi_source.sql`.
  */
+
+import type { SourceId } from '@/lib/prospecting/sources/types';
 
 export const WEBSITE_STATUSES = ['HAS_WEBSITE', 'NO_WEBSITE_DETECTED', 'UNKNOWN'] as const;
 export type WebsiteStatus = (typeof WEBSITE_STATUSES)[number];
@@ -225,4 +228,64 @@ export type Briefing = {
 
 export type CompanyWithLead = Company & {
   leads: Pick<Lead, 'id' | 'status' | 'priority'>[] | null;
+};
+
+// --- Multi-source (SPEC 1.2 FASE 6) -----------------------------------------
+
+/** Completude do registro trazido por uma fonte — nao e score comercial (SPEC 1.2 §14). */
+export const SOURCE_QUALITY_LEVELS = ['LOW', 'MEDIUM', 'HIGH'] as const;
+export type SourceQualityLevel = (typeof SOURCE_QUALITY_LEVELS)[number];
+
+/**
+ * `HIGH` nunca aparece aqui: confianca alta funde automaticamente (vira duas linhas em
+ * `lead_sources` apontando pro mesmo `company_id`, sem necessidade de revisao). Esta
+ * tabela guarda apenas os casos incertos, para revisao humana futura.
+ */
+export const DUPLICATE_CONFIDENCE_LEVELS = ['LOW', 'MEDIUM'] as const;
+export type DuplicateConfidenceLevel = (typeof DUPLICATE_CONFIDENCE_LEVELS)[number];
+
+/**
+ * Uma linha por (empresa, fonte, id externo) — a identidade neutra que substitui
+ * `google_place_id` como fonte de verdade (SPEC 1.2 FASE 6). Uma empresa encontrada em
+ * duas fontes tem duas linhas com o mesmo `company_id`.
+ */
+export type LeadSource = {
+  id: string;
+  user_id: string;
+  company_id: string;
+  source: SourceId;
+  source_id: string;
+  source_url: string | null;
+  source_quality: SourceQualityLevel | null;
+  raw_data: Record<string, unknown>;
+  first_seen_at: string;
+  last_seen_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LeadSourceUpsert = Omit<LeadSource, 'id' | 'created_at' | 'updated_at'>;
+
+/** Evidencia de possivel duplicidade cross-source que nao foi fundida automaticamente. */
+export type LeadDuplicateCandidate = {
+  id: string;
+  user_id: string;
+  company_id: string;
+  candidate_company_id: string;
+  confidence: DuplicateConfidenceLevel;
+  signals: string[];
+  created_at: string;
+};
+
+/** Cache persistente de descoberta (SPEC 1.2 §25/§43) — sobrevive entre invocacoes na Vercel. */
+export type DiscoveryCacheRow = {
+  id: string;
+  user_id: string;
+  source: SourceId;
+  cache_key: string;
+  params: Record<string, unknown>;
+  result: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
 };

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_ATTEMPTS, OverpassError, runOverpassQuery } from '@/lib/overpass/client';
-import { assessSourceQuality, osmElementToRawBusiness } from '@/lib/overpass/mapping';
+import { osmElementToRawBusiness } from '@/lib/overpass/mapping';
+import { assessSourceQuality } from '@/lib/prospecting/sources/types';
 
 const QL = '[out:json][timeout:5];(node["shop"="bakery"](0,0,1,1););out center tags 10;';
 

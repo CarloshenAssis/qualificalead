@@ -21,7 +21,8 @@ import { GooglePlacesError } from '@/lib/google/places';
 import { DEFAULT_PROSPECTING_MODE, selectSources } from './sources/registry';
 import {
   SOURCE_LABELS,
-  capabilitiesFor,
+  assessSourceQuality,
+  capabilitiesForSources,
   type ProspectingSearchParams,
   type ProspectingSource,
   type RawBusiness,
@@ -29,26 +30,28 @@ import {
 } from './sources/types';
 import { normalizeRawBusiness, type NormalizedBusiness } from './sources/normalize';
 import { buildDedupKey, dedupeNormalizedBusinesses } from './sources/dedupe';
-import { inferCompanySource } from './sources/identity';
+import { inferCompanySource, loadCompanySources } from './sources/identity';
+import { readDiscoveryCache, writeDiscoveryCache } from './cache';
+import { resolveIdentities, persistBusiness, type IdentityResolution } from './sources/persist';
 
 /**
- * Orquestracao da prospeccao (SPEC 43 fases 3-4, SPEC 1.1 §54/§85/§86, SPEC 1.2 §5-§35).
+ * Orquestracao da prospeccao (SPEC 43 fases 3-4, SPEC 1.1 §54/§85/§86, SPEC 1.2 §5-§35,
+ * FASE 6 identidade multi-source).
  *
- * Pipeline: Registry -> Selected Sources -> Search -> RawBusiness -> Normalize ->
- * Deduplicate -> Digital Presence -> Qualification -> Score -> Persist.
+ * Pipeline: Registry -> Selected Sources -> Search (com cache) -> RawBusiness -> Normalize
+ * -> Deduplicate -> Resolve Identity -> Digital Presence -> Qualification -> Score -> Persist.
  *
- * As duas primeiras etapas sao as unicas realmente novas na 1.2: qual fonte roda e
- * decidido pelo registry (lib/prospecting/sources/registry.ts) antes de qualquer chamada
- * de rede, e cada fonte devolve `RawBusiness` num formato que o resto do pipeline nao
- * precisa saber de onde veio. Presenca digital, qualificacao e persistencia sao a mesma
- * logica da 1.1, apenas operando sobre `NormalizedBusiness` em vez de `NormalizedPlace`.
- *
- * Emite eventos de progresso para a interface nunca parecer travada e reporta
- * falhas parciais com honestidade.
+ * "Resolve Identity" e o que a FASE 6 muda de verdade: em vez de decidir "essa empresa ja
+ * existe?" pelo par (google_place_id/dedup_key) como na FASE 4, a resposta agora vem de
+ * `lead_sources` — inclusive quando a mesma empresa aparece pela primeira vez numa fonte
+ * diferente da que a descobriu antes (consolidacao cross-source, lib/prospecting/sources/
+ * persist.ts). O resultado dessa etapa e reaproveitado tanto para decidir se o Instagram
+ * precisa ser reconsultado quanto para decidir como persistir no final.
  */
 
-/** Requisicoes simultaneas ao verificar presenca digital. */
+/** Requisicoes simultaneas ao verificar presenca digital e ao persistir. */
 const ENRICHMENT_CONCURRENCY = 5;
+const PERSIST_CONCURRENCY = 5;
 
 export type ProspectingStage =
   | 'locating'
@@ -143,10 +146,13 @@ export function buildCompanyRow(
   userId: string,
   business: NormalizedBusiness,
   outcome: EnrichmentOutcome,
+  sourcesOverride?: SourceId[],
 ): CompanyUpsert {
   const { instagram } = outcome;
   const phone = business.phone ?? business.phoneInternational;
-  const capabilities = capabilitiesFor(business.source);
+  // Sem override, a capacidade e so da fonte deste registro; com override (lead ja
+  // conhecido por outras fontes tambem), soma o que todas elas ja sabiam (SPEC 1.2 FASE 6).
+  const capabilities = capabilitiesForSources(sourcesOverride ?? [business.source]);
 
   const scoreInput = {
     website_status: business.websiteStatus,
@@ -178,10 +184,8 @@ export function buildCompanyRow(
 
   return {
     user_id: userId,
-    // Identidade pela coluna do Google continua exclusiva de leads do Google (SPEC 1.2 §22);
-    // as demais fontes usam `dedup_key` (indice parcial ja existente na migration 0001).
-    // Uma tabela de identidade de verdade neutra e trabalho de schema — FASE 6, ver
-    // lib/prospecting/sources/identity.ts.
+    // Compatibilidade com a 1.1 apenas: leads do Google continuam preenchendo esta
+    // coluna, mas quem decide identidade agora e `lead_sources` (SPEC 1.2 FASE 6).
     google_place_id: business.source === 'GOOGLE_PLACES' ? business.sourceId : null,
     name: business.name,
     category: business.category,
@@ -219,10 +223,9 @@ export function buildCompanyRow(
     next_action_reason: nextAction.reason,
     enrichment_status: outcome.status,
     enrichment_error: outcome.error,
-    // Ponto de integracao da FASE 6 (migration 0003): `source`/`source_id` viram coluna ou
-    // tabela dedicada quando o schema for alterado. `source_coverage` fica fora do score
-    // comercial (SPEC 1.2 §35) — nunca soma nem subtrai pontos, so documenta o que a fonte
-    // nao consegue observar.
+    // Historico leve mantido por compatibilidade; a proveniencia de verdade mora em
+    // `lead_sources` a partir da FASE 6. `source_coverage` fica fora do score comercial
+    // (SPEC 1.2 §35) — nunca soma nem subtrai pontos.
     source_data: {
       source: business.source,
       source_id: business.sourceId,
@@ -270,21 +273,44 @@ type SourceOutcome = {
   businesses: RawBusiness[];
   warnings: string[];
   limitReached: boolean;
+  cacheHit: boolean;
   error: SourceErrorInfo | null;
 };
 
+/**
+ * Roda uma fonte com cache persistente na frente (SPEC 1.2 §25/§43, FASE 6): mesma
+ * pesquisa dentro do TTL nunca gera uma nova chamada de rede. Falha ao ler/escrever o
+ * cache nunca derruba a pesquisa (lib/prospecting/cache.ts ja trata isso).
+ */
 async function runSource(
   source: ProspectingSource,
   params: ProspectingSearchParams,
   userId: string,
+  supabase: SupabaseClient,
 ): Promise<SourceOutcome> {
+  const cacheParams = { ...params, source: source.id };
+
+  const cached = await readDiscoveryCache(supabase, userId, cacheParams);
+  if (cached) {
+    return {
+      source,
+      businesses: cached.result.businesses,
+      warnings: cached.result.warnings,
+      limitReached: cached.result.metrics.returned >= cached.result.metrics.requested,
+      cacheHit: true,
+      error: null,
+    };
+  }
+
   try {
     const result = await source.search(params);
+    void writeDiscoveryCache(supabase, userId, cacheParams, result);
     return {
       source,
       businesses: result.businesses,
       warnings: result.warnings,
       limitReached: result.metrics.returned >= result.metrics.requested,
+      cacheHit: false,
       error: null,
     };
   } catch (error) {
@@ -295,43 +321,8 @@ async function runSource(
       code: info.code,
       detail: info.detail,
     });
-    return { source, businesses: [], warnings: [], limitReached: false, error: info };
+    return { source, businesses: [], warnings: [], limitReached: false, cacheHit: false, error: info };
   }
-}
-
-type ExistingCompanyRow = Pick<
-  Company,
-  | 'id'
-  | 'google_place_id'
-  | 'dedup_key'
-  | 'instagram_url'
-  | 'instagram_handle'
-  | 'instagram_confidence'
-  | 'instagram_status'
-  | 'instagram_source'
-  | 'instagram_evidence'
-  | 'instagram_checked_at'
-  | 'last_checked_at'
->;
-
-const EXISTING_COLUMNS =
-  'id, google_place_id, dedup_key, instagram_url, instagram_handle, instagram_confidence, instagram_status, instagram_source, instagram_evidence, instagram_checked_at, last_checked_at';
-
-async function loadExistingBy(
-  supabase: SupabaseClient,
-  userId: string,
-  column: 'google_place_id' | 'dedup_key',
-  values: string[],
-): Promise<ExistingCompanyRow[]> {
-  if (!values.length) return [];
-  const { data, error } = await supabase
-    .from('companies')
-    .select(EXISTING_COLUMNS)
-    .eq('user_id', userId)
-    .in(column, values);
-
-  if (error) throw error;
-  return (data as ExistingCompanyRow[] | null) ?? [];
 }
 
 export async function* runProspecting(
@@ -392,7 +383,9 @@ export async function* runProspecting(
     message: `Consultando ${selected.map((s) => s.name).join(' e ')}...`,
   };
 
-  const outcomes = await Promise.all(selected.map((source) => runSource(source, searchParams, userId)));
+  const outcomes = await Promise.all(
+    selected.map((source) => runSource(source, searchParams, userId, supabase)),
+  );
 
   for (const outcome of outcomes) {
     for (const warning of outcome.warnings) yield { type: 'warning', message: warning };
@@ -401,7 +394,9 @@ export async function* runProspecting(
   const succeeded = outcomes.filter((o): o is SourceOutcome & { error: null } => o.error === null);
 
   // Nenhuma fonte selecionada respondeu: mesmo comportamento fatal da 1.1 quando havia
-  // uma unica fonte (Google) e ela falhava — o diagnostico tecnico chega intacto.
+  // uma unica fonte (Google) e ela falhava — o diagnostico tecnico chega intacto. Nao ha
+  // fallback automatico entre fontes (SPEC 1.2 §23): uma fonte gratuita fora do ar nunca
+  // aciona uma fonte paga por conta propria.
   if (!succeeded.length) {
     const [first] = outcomes;
     yield {
@@ -424,6 +419,7 @@ export async function* runProspecting(
 
   const rawBusinesses = succeeded.flatMap((o) => o.businesses);
   const limitReached = succeeded.some((o) => o.limitReached);
+  const searchCacheHit = succeeded.every((o) => o.cacheHit);
 
   const normalized = dedupeNormalizedBusinesses(
     rawBusinesses
@@ -439,40 +435,17 @@ export async function* runProspecting(
 
   yield { type: 'progress', processed: 0, total: normalized.length };
 
-  // Empresas ja conhecidas: evita reconsultar site e preserva decisoes manuais sobre o
-  // Instagram (SPEC 3.3/18/37, SPEC 1.1 §11/§12). Leads do Google sao identificados por
-  // `google_place_id`; os demais, por `dedup_key` (SPEC 1.2 §22).
-  const googlePlaceIds = normalized
-    .filter((b) => b.source === 'GOOGLE_PLACES')
-    .map((b) => b.sourceId);
-  const dedupKeys = normalized
-    .filter((b) => b.source !== 'GOOGLE_PLACES')
-    .map((b) => buildDedupKey(b));
-
-  let existingRows: ExistingCompanyRow[];
+  // Resolve identidade (SPEC 1.2 FASE 6): quais empresas ja sao conhecidas, por qual
+  // caminho (match exato em `lead_sources` ou consolidacao cross-source por telefone/
+  // site), e quais sao genuinamente novas. Usado tanto para decidir presenca digital
+  // (abaixo) quanto para persistir (no final).
+  let identities: IdentityResolution[];
   try {
-    const [byPlaceId, byDedupKey] = await Promise.all([
-      loadExistingBy(supabase, userId, 'google_place_id', googlePlaceIds),
-      loadExistingBy(supabase, userId, 'dedup_key', dedupKeys),
-    ]);
-    existingRows = [...byPlaceId, ...byDedupKey];
+    identities = await resolveIdentities(supabase, userId, input.city || null, normalized);
   } catch {
-    console.error('[prospecting] falha ao carregar empresas existentes', { userId });
+    console.error('[prospecting] falha ao resolver identidade dos leads', { userId });
     yield { type: 'error', message: 'Nao foi possivel acessar os dados salvos. Tente novamente.' };
     return;
-  }
-
-  const existingByGooglePlaceId = new Map(
-    existingRows.filter((r) => r.google_place_id).map((r) => [r.google_place_id as string, r]),
-  );
-  const existingByDedupKey = new Map(
-    existingRows.filter((r) => r.dedup_key).map((r) => [r.dedup_key as string, r]),
-  );
-
-  function findExisting(business: NormalizedBusiness): ExistingCompanyRow | undefined {
-    return business.source === 'GOOGLE_PLACES'
-      ? existingByGooglePlaceId.get(business.sourceId)
-      : existingByDedupKey.get(buildDedupKey(business));
   }
 
   yield { type: 'stage', stage: 'digital_presence', message: STAGE_MESSAGES.digital_presence };
@@ -481,8 +454,9 @@ export async function* runProspecting(
   const outcomesByBusiness = await mapWithConcurrency(
     normalized,
     ENRICHMENT_CONCURRENCY,
-    async (business): Promise<EnrichmentOutcome> => {
-      const existing = findExisting(business);
+    async (business, index): Promise<EnrichmentOutcome> => {
+      const identity = identities[index];
+      const existing = identity.kind === 'EXACT' || identity.kind === 'CONSOLIDATED' ? identity.company : null;
 
       const reuse = (): EnrichmentOutcome => ({
         instagram: {
@@ -541,65 +515,72 @@ export async function* runProspecting(
 
   yield { type: 'progress', processed, total: normalized.length };
   yield { type: 'stage', stage: 'scoring', message: STAGE_MESSAGES.scoring };
-
-  const rows = normalized.map((business, index) => buildCompanyRow(userId, business, outcomesByBusiness[index]));
-
   yield { type: 'stage', stage: 'saving', message: STAGE_MESSAGES.saving };
 
-  // Persist: duas gravacoes por causa dos dois alvos de conflito possiveis (SPEC 1.2 §22).
-  // `dedup_key` e sempre preenchido, entao a divisao e simplesmente por ter ou nao
-  // `google_place_id` — nenhuma linha aparece nas duas listas.
-  const googleRows = rows.filter((r) => r.google_place_id !== null);
-  const otherRows = rows.filter((r) => r.google_place_id === null);
+  let persistFailed = 0;
+  const persistResults = await mapWithConcurrency(
+    normalized,
+    PERSIST_CONCURRENCY,
+    async (business, index) => {
+      const outcome = outcomesByBusiness[index];
+      const identity = identities[index];
+      const buildRow = (sourcesOverride?: SourceId[]) =>
+        buildCompanyRow(userId, business, outcome, sourcesOverride);
 
-  const upserts = await Promise.all([
-    googleRows.length
-      ? supabase
-          .from('companies')
-          .upsert(googleRows, { onConflict: 'user_id,google_place_id' })
-          .select('id, opportunity_level, website_status')
-      : Promise.resolve({ data: [], error: null }),
-    otherRows.length
-      ? supabase
-          .from('companies')
-          .upsert(otherRows, { onConflict: 'user_id,dedup_key' })
-          .select('id, opportunity_level, website_status')
-      : Promise.resolve({ data: [], error: null }),
-  ]);
+      try {
+        return await persistBusiness(supabase, userId, business, identity, buildRow, {
+          sourceUrl: business.sourceUrl,
+          sourceQuality: assessSourceQuality(business),
+          rawData: business.rawMetadata ?? {},
+        });
+      } catch (error) {
+        persistFailed += 1;
+        console.error('[prospecting] falha ao salvar empresa', {
+          userId,
+          business: business.sourceId,
+          error: error instanceof Error ? error.message : 'desconhecido',
+        });
+        return null;
+      }
+    },
+  );
 
-  const upsertError = upserts.find((r) => r.error)?.error;
-  if (upsertError) {
-    console.error('[prospecting] falha ao salvar empresas', { userId, code: upsertError.code });
+  if (persistFailed === normalized.length) {
+    console.error('[prospecting] falha ao salvar todas as empresas', { userId });
     yield { type: 'error', message: 'Nao foi possivel salvar os resultados. Tente novamente.' };
     return;
   }
 
-  const saved = upserts.flatMap((r) => r.data ?? []);
+  const saved = persistResults.filter((r): r is NonNullable<typeof r> => r !== null);
   const enrichmentFailed = outcomesByBusiness.filter((o) => o.status === 'FAILED').length;
   const enriched = outcomesByBusiness.filter((o) => o.status === 'OK').length;
-  const fromCache = outcomesByBusiness.filter((o) => o.fromCache).length;
-  const alreadyKnown = normalized.filter((b) => findExisting(b) !== undefined).length;
+  const digitalPresenceFromCache = outcomesByBusiness.filter((o) => o.fromCache).length;
+  const alreadyKnown = saved.filter((r) => !r.isNew).length;
 
-  const excellent = saved.filter((r) => r.opportunity_level === 'EXCELENTE').length;
-  const high = saved.filter((r) => r.opportunity_level === 'ALTA').length;
+  const excellent = saved.filter((r) => r.opportunityLevel === 'EXCELENTE').length;
+  const high = saved.filter((r) => r.opportunityLevel === 'ALTA').length;
 
   const summary: ProspectingSummary = {
     // Falha parcial nunca e apresentada como sucesso (SPEC 1.1 §86).
-    status: enrichmentFailed > 0 ? 'PARTIAL' : 'COMPLETED',
+    status: enrichmentFailed > 0 || persistFailed > 0 ? 'PARTIAL' : 'COMPLETED',
     found: normalized.length,
     saved: saved.length,
-    newCompanies: normalized.length - alreadyKnown,
+    newCompanies: saved.filter((r) => r.isNew).length,
     alreadyKnown,
-    withoutWebsite: saved.filter((r) => r.website_status === 'NO_WEBSITE_DETECTED').length,
+    withoutWebsite: saved.filter((r) => r.websiteStatus === 'NO_WEBSITE_DETECTED').length,
     qualified: excellent + high,
     excellent,
     high,
     enrichmentFailed,
-    fromCache,
+    fromCache: digitalPresenceFromCache,
     limitReached,
   };
 
   yield { type: 'stage', stage: 'done', message: STAGE_MESSAGES.done };
+
+  if (searchCacheHit) {
+    yield { type: 'warning', message: 'Resultado reaproveitado do cache de descoberta.' };
+  }
 
   // Registro da pesquisa + historico de onde cada empresa apareceu (SPEC 19/46/84).
   let searchId: string | null = null;
@@ -640,7 +621,7 @@ export async function* runProspecting(
     searchId = searchRow.id;
     const hits = saved.map((row) => ({
       user_id: userId,
-      company_id: row.id,
+      company_id: row.companyId,
       search_id: searchRow.id,
     }));
     if (hits.length) {
@@ -684,6 +665,13 @@ export async function reprocessFailedEnrichment(
   if (error || !data?.length) return { processed: 0, recovered: 0, stillFailing: 0 };
 
   const companies = data as Company[];
+  // Capacidades combinadas de TODAS as fontes que ja contribuiram para cada lead
+  // (SPEC 1.2 FASE 6) — nao so a que o `source_data` legado lembra.
+  const sourcesByCompany = await loadCompanySources(
+    supabase,
+    companies.map((c) => c.id),
+  );
+
   let recovered = 0;
   let stillFailing = 0;
 
@@ -711,7 +699,9 @@ export async function reprocessFailedEnrichment(
       stillFailing += 1;
     }
 
-    const row = buildCompanyRow(userId, companyToBusiness(company), outcome);
+    const knownSources = sourcesByCompany.get(company.id);
+    const sourcesOverride = knownSources?.length ? knownSources : [inferCompanySource(company).source];
+    const row = buildCompanyRow(userId, companyToBusiness(company), outcome, sourcesOverride);
     await supabase
       .from('companies')
       .update({
@@ -772,5 +762,7 @@ function companyToBusiness(company: Company): NormalizedBusiness {
     reviewCount: company.review_count,
     openingHours: company.opening_hours,
     businessStatus: company.business_status,
+    // Reprocessamento nunca grava lead_sources; nao precisa do retrato bruto original.
+    rawMetadata: null,
   };
 }

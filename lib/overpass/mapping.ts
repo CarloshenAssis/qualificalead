@@ -101,20 +101,3 @@ export function osmElementToRawBusiness(element: OverpassElement): RawBusiness |
     metadata: { osm_tags: tags },
   };
 }
-
-/**
- * Qualidade do dado trazido pela fonte (SPEC 1.2 §14).
- * Nao e score comercial — mede apenas o quao completo veio o registro.
- */
-export type SourceQuality = 'HIGH' | 'MEDIUM' | 'LOW';
-
-export function assessSourceQuality(business: RawBusiness): SourceQuality {
-  const hasLocation =
-    typeof business.latitude === 'number' && typeof business.longitude === 'number';
-  const hasAddress = Boolean(business.address);
-  const hasContact = Boolean(business.phone || business.website);
-
-  if (business.name && hasAddress && hasLocation && hasContact) return 'HIGH';
-  if (business.name && hasLocation && (hasAddress || hasContact)) return 'MEDIUM';
-  return 'LOW';
-}

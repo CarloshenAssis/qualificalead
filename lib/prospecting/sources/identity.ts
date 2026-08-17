@@ -1,18 +1,48 @@
+import 'server-only';
+
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Company } from '@/types/database';
 import type { SourceId } from './types';
 
 /**
- * Recupera a fonte de uma empresa ja salva, sem depender de coluna nova no banco.
- *
- * A identidade neutra de verdade (uma tabela `lead_sources` que suporte varias fontes
- * por empresa) e trabalho de schema — fica para a FASE 6 (SPEC 1.2 §6, exigencia do
- * usuario de nao reduzir isso a "trocar `google_place_id` por outro campo escondido").
- * Ate la, `source_data` (jsonb ja existente) carrega `{ source, source_id }` desde a
- * FASE 4, e serve como o ponto de integracao que a FASE 6 vai promover a coluna/tabela.
- *
- * Empresas gravadas antes da 1.2 nao tem esses campos: caem no fallback abaixo, que
- * preserva o comportamento da 1.1 (toda empresa com `google_place_id` e tratada como
- * Google; sem ele, como `LEGACY`, sem inferir uma origem que nao foi registrada).
+ * Identidade neutra por fonte (SPEC 1.2 FASE 6): `lead_sources` e a fonte de verdade —
+ * uma empresa pode ter varias linhas (uma por fonte que a encontrou), todas apontando
+ * para o mesmo `company_id`. `google_place_id`/`dedup_key` continuam existindo em
+ * `companies` por compatibilidade com a 1.1, mas deixam de ser a identidade
+ * arquitetural: quem decide "essa empresa ja existe?" e "quais capacidades ela tem?"
+ * e sempre `lead_sources`.
+ */
+
+/** Todas as fontes que ja contribuiram para cada empresa, buscadas em lote (evita N+1). */
+export async function loadCompanySources(
+  supabase: SupabaseClient,
+  companyIds: string[],
+): Promise<Map<string, SourceId[]>> {
+  const map = new Map<string, SourceId[]>();
+  if (!companyIds.length) return map;
+
+  const { data, error } = await supabase
+    .from('lead_sources')
+    .select('company_id, source')
+    .in('company_id', companyIds);
+
+  if (error || !data) return map;
+
+  for (const row of data as { company_id: string; source: SourceId }[]) {
+    const list = map.get(row.company_id) ?? [];
+    list.push(row.source);
+    map.set(row.company_id, list);
+  }
+
+  return map;
+}
+
+/**
+ * Fallback usado apenas quando uma empresa ainda nao tem nenhuma linha em `lead_sources`
+ * (nao deveria acontecer para empresas criadas apos a migration 0004, cujo backfill
+ * preenche todas as existentes — mas protege contra uma falha isolada de escrita).
+ * `source_data` (jsonb, preenchido desde a FASE 4) e o unico sinal que sobra nesse caso;
+ * sem ele, sem `google_place_id`, a origem nunca e inferida — vira `LEGACY`.
  */
 export function inferCompanySource(
   company: Pick<Company, 'source_data' | 'google_place_id'>,

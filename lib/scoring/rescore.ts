@@ -1,7 +1,7 @@
 import type { Company, LeadStatus } from '@/types/database';
 import { computeGoogleBusinessQuality, computeNextAction, computeOpportunityScore } from './score';
 import { normalizePhone } from '@/lib/whatsapp/phone';
-import { capabilitiesFor } from '@/lib/prospecting/sources/types';
+import { capabilitiesForSources, type SourceId } from '@/lib/prospecting/sources/types';
 import { inferCompanySource } from '@/lib/prospecting/sources/identity';
 
 /**
@@ -10,11 +10,19 @@ import { inferCompanySource } from '@/lib/prospecting/sources/identity';
  *
  * O recalculo precisa das mesmas capacidades de fonte usadas na prospeccao original
  * (SPEC 1.2 §35) — senao um lead do OSM reavaliado aqui ganharia pontos por sinais que
- * a fonte nunca conseguiu observar.
+ * a fonte nunca conseguiu observar. `sources` deve vir de `lead_sources` (SPEC 1.2 FASE 6)
+ * — todas as fontes que ja contribuiram para este lead, nao so uma; sem isso, cai no
+ * fallback de fonte unica (`source_data`/`google_place_id`, comportamento da FASE 4).
  */
-export function derivedFieldsFor(company: Company, leadStatus?: LeadStatus | null) {
+export function derivedFieldsFor(
+  company: Company,
+  leadStatus?: LeadStatus | null,
+  sources?: SourceId[],
+) {
   const phone = company.phone ?? company.phone_international;
-  const capabilities = capabilitiesFor(inferCompanySource(company).source);
+  const capabilities = capabilitiesForSources(
+    sources?.length ? sources : [inferCompanySource(company).source],
+  );
 
   const scoreInput = {
     website_status: company.website_status,

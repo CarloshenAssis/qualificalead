@@ -35,6 +35,8 @@ export type NormalizedBusiness = {
   reviewCount: number | null;
   openingHours: string[] | null;
   businessStatus: string | null;
+  /** Retrato bruto da fonte (SPEC 1.2 FASE 6) — vira `lead_sources.raw_data`, para auditoria. */
+  rawMetadata: Record<string, unknown> | null;
 };
 
 export function normalizeRawBusiness(business: RawBusiness): NormalizedBusiness | null {
@@ -66,5 +68,6 @@ export function normalizeRawBusiness(business: RawBusiness): NormalizedBusiness 
     reviewCount: typeof business.reviewCount === 'number' ? business.reviewCount : null,
     openingHours: business.openingHours?.length ? business.openingHours : null,
     businessStatus: business.businessStatus?.trim() || null,
+    rawMetadata: business.metadata ?? null,
   };
 }

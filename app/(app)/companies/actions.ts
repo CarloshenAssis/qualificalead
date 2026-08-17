@@ -10,6 +10,7 @@ import {
   leadUpsertSchema,
 } from '@/lib/validation/schemas';
 import { derivedFieldsFor } from '@/lib/scoring/rescore';
+import { loadCompanySources } from '@/lib/prospecting/sources/identity';
 import { buildBriefing } from '@/lib/briefing/generate';
 import { buildLovablePrompt } from '@/lib/briefing/lovable';
 import type { BriefingManualData, Company, LeadStatus } from '@/types/database';
@@ -40,9 +41,11 @@ async function rescoreCompany(companyId: string): Promise<void> {
     .eq('company_id', company.id)
     .maybeSingle();
 
+  const sources = (await loadCompanySources(supabase, [company.id])).get(company.id);
+
   await supabase
     .from('companies')
-    .update(derivedFieldsFor(company, (lead?.status as LeadStatus | undefined) ?? null))
+    .update(derivedFieldsFor(company, (lead?.status as LeadStatus | undefined) ?? null, sources))
     .eq('id', company.id)
     .eq('user_id', company.user_id);
 }

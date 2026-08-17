@@ -125,6 +125,10 @@ export function overpassTimeoutMs(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_OVERPASS_TIMEOUT_MS;
 }
 
+/**
+ * TTL do cache persistente de descoberta (SPEC 1.2 §25/§43, FASE 6) — vale para qualquer
+ * fonte, nao so Overpass. O nome da variavel segue o que a SPEC-1.2.md ja documenta.
+ */
 export const DEFAULT_OVERPASS_CACHE_TTL_HOURS = 24;
 
 export function overpassCacheTtlHours(): number {

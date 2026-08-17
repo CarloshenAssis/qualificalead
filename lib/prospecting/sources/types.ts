@@ -164,3 +164,58 @@ export const SOURCE_CAPABILITIES: Record<SourceId, SourceCapabilities> = {
 export function capabilitiesFor(source: SourceId | null | undefined): SourceCapabilities {
   return SOURCE_CAPABILITIES[source ?? 'LEGACY'] ?? SOURCE_CAPABILITIES.LEGACY;
 }
+
+/**
+ * Capacidades combinadas quando um lead tem mais de uma fonte (SPEC 1.2 FASE 6): um lead
+ * consolidado de OSM + Google pode usar rating/reviews (do Google) mesmo que o registro
+ * do OSM sozinho nao os tivesse — a capacidade e do conjunto de fontes, nao da ultima
+ * que respondeu.
+ */
+export function capabilitiesForSources(sources: SourceId[]): SourceCapabilities {
+  if (!sources.length) return SOURCE_CAPABILITIES.LEGACY;
+
+  return sources.reduce<SourceCapabilities>(
+    (acc, source) => {
+      const capabilities = capabilitiesFor(source);
+      return {
+        rating: acc.rating || capabilities.rating,
+        reviewCount: acc.reviewCount || capabilities.reviewCount,
+        businessProfile: acc.businessProfile || capabilities.businessProfile,
+        phone: acc.phone || capabilities.phone,
+        website: acc.website || capabilities.website,
+      };
+    },
+    { rating: false, reviewCount: false, businessProfile: false, phone: false, website: false },
+  );
+}
+
+/**
+ * Qualidade do dado trazido pela fonte (SPEC 1.2 §14).
+ * Nao e score comercial — mede apenas o quao completo veio o registro de uma fonte.
+ * Guardado por registro em `lead_sources.source_quality` (FASE 6).
+ */
+export type SourceQuality = 'HIGH' | 'MEDIUM' | 'LOW';
+
+/**
+ * Estrutural, nao ligado a `RawBusiness`: so olha presenca/tipo dos campos, entao serve
+ * tanto para uma empresa recem-buscada quanto para uma ja normalizada.
+ */
+type QualityAssessable = {
+  name?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export function assessSourceQuality(business: QualityAssessable): SourceQuality {
+  const hasLocation =
+    typeof business.latitude === 'number' && typeof business.longitude === 'number';
+  const hasAddress = Boolean(business.address);
+  const hasContact = Boolean(business.phone || business.website);
+
+  if (business.name && hasAddress && hasLocation && hasContact) return 'HIGH';
+  if (business.name && hasLocation && (hasAddress || hasContact)) return 'MEDIUM';
+  return 'LOW';
+}
