@@ -33,7 +33,7 @@ export function derivedFieldsFor(company: Company, leadStatus?: LeadStatus | nul
   };
 
   const score = computeOpportunityScore(scoreInput, capabilities);
-  const quality = computeGoogleBusinessQuality(scoreInput);
+  const quality = computeGoogleBusinessQuality(scoreInput, capabilities);
   const nextAction = computeNextAction({
     score: score.score,
     quality,

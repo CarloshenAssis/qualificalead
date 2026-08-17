@@ -13,7 +13,12 @@ export const WEBSITE_STATUS_LABELS: Record<WebsiteStatus, string> = {
   UNKNOWN: 'Nao foi possivel verificar',
 };
 
-export const GOOGLE_BUSINESS_QUALITIES = ['LOW', 'MEDIUM', 'HIGH'] as const;
+/**
+ * `NOT_APPLICABLE`: a fonte nao fornece dados de perfil comercial do Google (SPEC 1.2
+ * §34) — nunca deve ser tratado como `LOW` nem inventar uma heuristica propria para
+ * outras fontes (ex.: OSM).
+ */
+export const GOOGLE_BUSINESS_QUALITIES = ['LOW', 'MEDIUM', 'HIGH', 'NOT_APPLICABLE'] as const;
 export type GoogleBusinessQuality = (typeof GOOGLE_BUSINESS_QUALITIES)[number];
 
 export const NEXT_ACTIONS = [

@@ -34,6 +34,8 @@ const QUALITY_LABEL: Record<GoogleBusinessQuality, string> = {
   HIGH: 'Perfil Google robusto',
   MEDIUM: 'Perfil Google mediano',
   LOW: 'Perfil Google fraco',
+  // A fonte deste lead nao fornece dados de perfil comercial do Google (ex.: OpenStreetMap).
+  NOT_APPLICABLE: '',
 };
 
 export function ScoreBreakdown({
@@ -70,7 +72,7 @@ export function ScoreBreakdown({
         <p className="text-sm text-ink-mute">Sem sinais pontuados ate agora.</p>
       )}
 
-      {quality ? (
+      {quality && quality !== 'NOT_APPLICABLE' ? (
         <p className="mt-3 text-xs text-ink-soft">
           {QUALITY_LABEL[quality]} — a qualidade considera completude do cadastro e volume de
           avaliacoes, nunca apenas a nota.

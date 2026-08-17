@@ -246,8 +246,17 @@ export function computeOpportunityScore(
 /**
  * Qualidade do perfil no Google (SPEC 1.1 §30/§31).
  * Considera completude do cadastro e volume de avaliacoes — nunca apenas o rating.
+ *
+ * Metrica especifica de Google Business Profile (SPEC 1.2 §34, mesma regra do score
+ * comercial): sem essa capacidade a fonte simplesmente nao tem o que essa metrica mede —
+ * `NOT_APPLICABLE`, nunca `LOW` (que afirmaria um perfil ruim que nao existe para
+ * avaliar) nem uma heuristica nova inventada para a fonte.
  */
-export function computeGoogleBusinessQuality(input: ScoreInput): GoogleBusinessQuality {
+export function computeGoogleBusinessQuality(
+  input: ScoreInput,
+  capabilities: SourceCapabilities = FULL_CAPABILITIES,
+): GoogleBusinessQuality {
+  if (!capabilities.businessProfile) return 'NOT_APPLICABLE';
   if (!isOperational(input.business_status)) return 'LOW';
 
   const fields = googleProfileFilledFields(input);

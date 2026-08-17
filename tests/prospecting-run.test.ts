@@ -340,6 +340,23 @@ describe('runProspecting — score relativo a fonte e source_coverage (SPEC 1.2 
     expect(breakdown.some((b) => b.code === 'REVIEW_COUNT')).toBe(false);
     expect(breakdown.some((b) => b.code === 'NO_WEBSITE')).toBe(true);
   });
+
+  it('OSM nunca vira LOW em google_business_quality (ajuste da FASE 4, SPEC 1.2 §34)', async () => {
+    mockOsmRoundTrip([overpassElement(1, 'Padaria Central', { phone: '(12) 3921-0000' })]);
+    const { client, calls } = createSupabaseStub();
+
+    await collectEvents(client, 'user-1', BASE_INPUT);
+
+    const upsertCall = calls.find((c) => c.op === 'upsert');
+    const row = (upsertCall!.args as { rows: Array<Record<string, unknown>> }).rows[0];
+
+    expect(row.google_business_quality).toBe('NOT_APPLICABLE');
+    // Este lead cai em LOW_PRIORITY porque o score (35) fica abaixo do limiar de baixa
+    // prioridade — nao porque quality e NOT_APPLICABLE. O isolamento exato desse efeito
+    // (mesma acao com HIGH e com NOT_APPLICABLE, mesmo score) esta em tests/qualification.test.ts.
+    expect(row.opportunity_score).toBeLessThan(40);
+    expect(row.next_action).toBe('LOW_PRIORITY');
+  });
 });
 
 describe('runProspecting — empresa OSM ja conhecida (busca por dedup_key)', () => {
