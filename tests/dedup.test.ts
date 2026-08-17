@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildDedupKey, normalizePlace } from '@/lib/google/mappers';
+import { normalizePlace } from '@/lib/google/mappers';
+import { buildDedupKey } from '@/lib/prospecting/sources/dedupe';
 import type { GooglePlace } from '@/lib/google/places';
 
 const PLACE: GooglePlace = {

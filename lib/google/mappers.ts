@@ -90,29 +90,3 @@ export function normalizePlace(place: GooglePlace): NormalizedPlace | null {
     business_status: place.businessStatus?.trim() || null,
   };
 }
-
-/**
- * Chave de deduplicacao alternativa quando nao ha `place_id` confiavel (SPEC 18):
- * nome + telefone + endereco + coordenadas arredondadas.
- */
-export function buildDedupKey(input: {
-  name: string;
-  phone?: string | null;
-  address?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-}): string {
-  const slug = (value: string | null | undefined) =>
-    (value ?? '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '');
-
-  const coords =
-    typeof input.latitude === 'number' && typeof input.longitude === 'number'
-      ? `${input.latitude.toFixed(4)},${input.longitude.toFixed(4)}`
-      : '';
-
-  return [slug(input.name), slug(input.phone), slug(input.address), coords].join('|');
-}

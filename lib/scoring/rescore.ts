@@ -1,13 +1,20 @@
 import type { Company, LeadStatus } from '@/types/database';
 import { computeGoogleBusinessQuality, computeNextAction, computeOpportunityScore } from './score';
 import { normalizePhone } from '@/lib/whatsapp/phone';
+import { capabilitiesFor } from '@/lib/prospecting/sources/types';
+import { inferCompanySource } from '@/lib/prospecting/sources/identity';
 
 /**
  * Recalcula os dados derivados de uma empresa (SPEC 1.1 §15).
  * Usado sempre que um sinal muda: confirmacao de Instagram, mudanca de status do lead etc.
+ *
+ * O recalculo precisa das mesmas capacidades de fonte usadas na prospeccao original
+ * (SPEC 1.2 §35) — senao um lead do OSM reavaliado aqui ganharia pontos por sinais que
+ * a fonte nunca conseguiu observar.
  */
 export function derivedFieldsFor(company: Company, leadStatus?: LeadStatus | null) {
   const phone = company.phone ?? company.phone_international;
+  const capabilities = capabilitiesFor(inferCompanySource(company).source);
 
   const scoreInput = {
     website_status: company.website_status,
@@ -25,7 +32,7 @@ export function derivedFieldsFor(company: Company, leadStatus?: LeadStatus | nul
     google_maps_url: company.google_maps_url,
   };
 
-  const score = computeOpportunityScore(scoreInput);
+  const score = computeOpportunityScore(scoreInput, capabilities);
   const quality = computeGoogleBusinessQuality(scoreInput);
   const nextAction = computeNextAction({
     score: score.score,

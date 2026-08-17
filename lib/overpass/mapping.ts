@@ -79,6 +79,8 @@ export function osmElementToRawBusiness(element: OverpassElement): RawBusiness |
     // O par tipo/id e o identificador estavel de um objeto OSM.
     sourceId: `${element.type}/${element.id}`,
     name,
+    // OSM nao tem um campo unico de categoria: usamos a primeira tag classificadora.
+    category: categories(tags)?.[0],
     address: buildAddress(tags),
     street: tags['addr:street']?.trim() || undefined,
     number: tags['addr:housenumber']?.trim() || undefined,

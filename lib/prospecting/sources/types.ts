@@ -33,6 +33,9 @@ export type RawBusiness = {
   sourceId: string;
 
   name?: string;
+  /** Categoria unica e legivel, quando a propria fonte a fornece (nao inferida aqui). */
+  category?: string;
+  description?: string;
 
   address?: string;
   street?: string;
@@ -47,6 +50,8 @@ export type RawBusiness = {
   longitude?: number;
 
   phone?: string;
+  /** Telefone em formato internacional, quando a fonte distingue os dois formatos. */
+  phoneInternational?: string;
   website?: string;
 
   categories?: string[];
