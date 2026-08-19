@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProspectingSearchInput } from '@/lib/validation/schemas';
 import { runProspecting, buildCompanyRow } from '@/lib/prospecting/run';
+import { computeCacheKey } from '@/lib/prospecting/cache';
 import { googlePlacesSource } from '@/lib/prospecting/sources/google';
 import { computeOpportunityScore } from '@/lib/scoring/score';
 import { SOURCE_CAPABILITIES } from '@/lib/prospecting/sources/types';
@@ -352,6 +353,77 @@ describe('runProspecting — empresa OSM ja conhecida (match exato via lead_sour
     expect(tables.companies).toHaveLength(1);
     expect(tables.companies[0].instagram_status).toBe('CONFIRMED');
     expect(tables.companies[0].instagram_url).toBe('https://instagram.com/padariacentral');
+  });
+});
+
+describe('runProspecting — cache de descoberta evita nova chamada ao Overpass (SPEC 1.2 §25, FASE 9)', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('cacheHit=true reaproveita o resultado gravado e nunca chama fetch (Nominatim/Overpass)', async () => {
+    const cacheKey = computeCacheKey({
+      source: 'OPENSTREETMAP',
+      query: BASE_INPUT.segment,
+      city: BASE_INPUT.city,
+      state: BASE_INPUT.state,
+      countryCode: BASE_INPUT.country,
+      limit: BASE_INPUT.limit,
+    });
+
+    const cachedResult = {
+      source: 'OPENSTREETMAP' as const,
+      businesses: [
+        {
+          source: 'OPENSTREETMAP' as const,
+          sourceId: 'node/1',
+          name: 'Padaria Central',
+          phone: '(12) 3921-0000',
+          city: 'Sao Jose dos Campos',
+          latitude: -23.2,
+          longitude: -45.9,
+        },
+      ],
+      warnings: [],
+      metrics: { requested: 25, returned: 1, durationMs: 10, cacheHit: false },
+    };
+
+    const { client, tables } = createSupabaseMock({
+      discovery_cache: [
+        {
+          id: 'cache-1',
+          user_id: 'user-1',
+          source: 'OPENSTREETMAP',
+          cache_key: cacheKey,
+          params: {},
+          result: cachedResult,
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        },
+      ],
+    });
+
+    // Se o cache falhar e o codigo tentar buscar de novo, o teste falha alto e claro —
+    // em vez de silenciosamente bater na rede real (Nominatim/Overpass).
+    const fetchMock = vi.fn().mockRejectedValue(new Error('NAO DEVERIA CHAMAR A REDE: cache deveria ter respondido'));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const events = await collectEvents(client, 'user-1', BASE_INPUT);
+    const done = events.find((e) => e.type === 'done');
+    if (done?.type !== 'done') throw new Error('esperava evento done');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(done.summary.cacheHit).toBe(true);
+    expect(done.summary.rawFound).toBe(1);
+    expect(tables.companies).toHaveLength(1);
+    expect(tables.companies[0].name).toBe('Padaria Central');
   });
 });
 
