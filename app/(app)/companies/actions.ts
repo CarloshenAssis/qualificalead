@@ -13,7 +13,8 @@ import { derivedFieldsFor } from '@/lib/scoring/rescore';
 import { loadCompanySources } from '@/lib/prospecting/sources/identity';
 import { buildBriefing } from '@/lib/briefing/generate';
 import { buildLovablePrompt } from '@/lib/briefing/lovable';
-import type { BriefingManualData, Company, LeadStatus } from '@/types/database';
+import { summarizeSources } from '@/lib/companies/source-display';
+import type { BriefingManualData, Company, LeadSource, LeadStatus } from '@/types/database';
 
 export type ActionState = { error?: string; message?: string };
 
@@ -267,16 +268,20 @@ export async function saveBriefing(_prev: ActionState, formData: FormData): Prom
 
     const { data, error: companyError } = await supabase
       .from('companies')
-      .select('*')
+      .select('*, lead_sources(source, source_url, source_quality)')
       .eq('id', companyId)
       .eq('user_id', user.id)
       .single();
 
     if (companyError || !data) return fail(companyError, 'Empresa nao encontrada.');
 
-    const company = data as Company;
-    const briefing = buildBriefing(company, manual);
-    const prompt = buildLovablePrompt(company, manual);
+    const { lead_sources, ...companyFields } = data as Company & {
+      lead_sources: Pick<LeadSource, 'source' | 'source_url' | 'source_quality'>[] | null;
+    };
+    const company = companyFields as Company;
+    const sourceLabel = summarizeSources(lead_sources).label;
+    const briefing = buildBriefing(company, manual, sourceLabel);
+    const prompt = buildLovablePrompt(company, manual, sourceLabel);
 
     const { error } = await supabase.from('briefings').upsert(
       {

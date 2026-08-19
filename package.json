@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "verify:google": "node --experimental-strip-types scripts/verify-google.ts",
     "verify:supabase": "node scripts/verify-supabase.mjs",
-    "verify:ui": "node scripts/verify-ui.mjs"
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "smoke:osm": "vitest run --config vitest.smoke.config.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

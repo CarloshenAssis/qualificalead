@@ -9,8 +9,22 @@ import { BriefingPanel } from '@/components/briefing/BriefingPanel';
 import { createClient, requireUser } from '@/lib/supabase/server';
 import { formatPhoneDisplay, whatsappLink } from '@/lib/whatsapp/phone';
 import { formatDate } from '@/lib/utils';
-import { WEBSITE_STATUS_LABELS, type Briefing, type Company, type Interaction, type Lead } from '@/types/database';
+import { summarizeSources } from '@/lib/companies/source-display';
+import { SOURCE_LABELS } from '@/lib/prospecting/sources/types';
+import {
+  SOURCE_QUALITY_LABELS,
+  WEBSITE_STATUS_LABELS,
+  type Briefing,
+  type Company,
+  type Interaction,
+  type Lead,
+  type LeadSource,
+} from '@/types/database';
 import { NextActionCard } from '@/components/companies/NextActionCard';
+
+type CompanyDetail = Company & {
+  lead_sources: Pick<LeadSource, 'source' | 'source_url' | 'source_quality'>[] | null;
+};
 
 export const dynamic = 'force-dynamic';
 
@@ -30,13 +44,14 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
 
   const { data: companyRow } = await supabase
     .from('companies')
-    .select('*')
+    .select('*, lead_sources(source, source_url, source_quality)')
     .eq('id', id)
     .eq('user_id', user.id)
     .maybeSingle();
 
   if (!companyRow) notFound();
-  const company = companyRow as Company;
+  const company = companyRow as CompanyDetail;
+  const sourceInfo = summarizeSources(company.lead_sources);
 
   const { data: leadRow } = await supabase
     .from('leads')
@@ -89,7 +104,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         {company.google_maps_url ? (
           <ExternalLinkButton href={company.google_maps_url}>
             <MapPin className="size-4" aria-hidden />
-            Google Maps
+            Ver no mapa
           </ExternalLinkButton>
         ) : null}
         {company.website ? (
@@ -111,7 +126,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
 
         <Card>
           <SectionTitle>Informacoes basicas</SectionTitle>
-          <p className="mb-2 text-xs text-ink-mute">Dados coletados do Google Places.</p>
+          <p className="mb-2 text-xs text-ink-mute">Dados coletados de {sourceInfo.label}.</p>
           <dl>
             <InfoRow label="Nome" value={company.name} />
             <InfoRow label="Categoria" value={company.category ?? 'Nao informado'} />
@@ -141,7 +156,38 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         </Card>
 
         <Card>
-          <SectionTitle>Google</SectionTitle>
+          <SectionTitle>Fonte</SectionTitle>
+          <p className="mb-2 text-xs text-ink-mute">De onde os dados deste lead vieram.</p>
+          <dl>
+            <InfoRow label="Origem" value={sourceInfo.label} />
+            <InfoRow
+              label="Completude do dado"
+              value={sourceInfo.quality ? SOURCE_QUALITY_LABELS[sourceInfo.quality] : 'Nao informado'}
+            />
+          </dl>
+          {company.lead_sources?.length ? (
+            <ul className="mt-3 flex flex-col gap-1">
+              {company.lead_sources.map((s, i) => (
+                <li key={`${s.source}-${i}`} className="text-xs text-ink-mute">
+                  {SOURCE_LABELS[s.source]}
+                  {s.source_url ? (
+                    <a
+                      href={s.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-1 text-brand-700 underline"
+                    >
+                      ver registro original
+                    </a>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Card>
+
+        <Card>
+          <SectionTitle>Perfil comercial</SectionTitle>
           <dl>
             <InfoRow
               label="Avaliacao"

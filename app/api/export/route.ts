@@ -4,7 +4,7 @@ import { companyFiltersSchema } from '@/lib/validation/schemas';
 import { companiesExportQuery } from '@/lib/companies/query';
 import { buildCsv } from '@/lib/export/csv';
 import { buildXlsx } from '@/lib/export/xlsx';
-import type { Company } from '@/types/database';
+import type { CompanyWithLead } from '@/types/database';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Nao foi possivel gerar a exportacao.' }, { status: 500 });
   }
 
-  const companies = (data ?? []) as Company[];
+  const companies = (data ?? []) as CompanyWithLead[];
   const stamp = new Date().toISOString().slice(0, 10);
 
   if (format === 'xlsx') {

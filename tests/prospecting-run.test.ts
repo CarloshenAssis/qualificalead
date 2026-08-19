@@ -73,7 +73,7 @@ const BASE_INPUT: ProspectingSearchInput = {
   city: 'Sao Jose dos Campos',
   state: 'SP',
   country: 'Brasil',
-  limit: 20,
+  limit: 25,
 };
 
 async function collectEvents(client: ReturnType<typeof createSupabaseMock>['client'], userId: string, input: ProspectingSearchInput) {

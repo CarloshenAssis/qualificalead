@@ -61,7 +61,8 @@ describe('buildBriefing', () => {
       'SEGMENTO',
       'LOCALIZACAO',
       'CONTATOS',
-      'GOOGLE',
+      'FONTE DOS DADOS',
+      'PERFIL COMERCIAL',
       'PRESENCA DIGITAL',
       'INSTAGRAM',
       'DESCRICAO ENCONTRADA',
@@ -91,6 +92,18 @@ describe('buildBriefing', () => {
     const text = buildBriefing(company(), { services: 'Massas e pizzas' });
     expect(text).toContain('INFORMACOES CONFIRMADAS (fornecidas por voce)');
     expect(text).toContain('Massas e pizzas');
+  });
+
+  it('nao afirma Google quando a fonte nao foi informada (SPEC 1.2 FASE 7 §6)', () => {
+    const text = buildBriefing(company());
+    expect(text).toContain('Origem nao registrada');
+    expect(text).not.toContain('coletadas do Google');
+  });
+
+  it('preserva a proveniencia real quando a fonte e informada', () => {
+    const text = buildBriefing(company(), {}, 'OpenStreetMap');
+    expect(text).toContain('OpenStreetMap');
+    expect(text).toContain('INFORMACOES AUTOMATICAS (coletadas de OpenStreetMap)');
   });
 });
 
@@ -158,5 +171,12 @@ describe('buildLovablePrompt', () => {
     expect(prompt).toContain('Nao invente informacoes sobre a empresa.');
     expect(prompt).toContain('nao crie conteudo factual');
     expect(prompt).toContain('[PREENCHER: item]');
+  });
+
+  it('inclui a fonte dos dados entre os dados confirmados (SPEC 1.2 FASE 7 §6)', () => {
+    const prompt = buildLovablePrompt(company(), {}, 'OpenStreetMap');
+    const confirmedBlock = prompt.slice(prompt.indexOf('DADOS CONFIRMADOS'), prompt.indexOf('DADOS A CONFIRMAR'));
+    expect(confirmedBlock).toContain('Fonte dos dados: OpenStreetMap');
+    expect(prompt).not.toContain('no Google');
   });
 });

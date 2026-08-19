@@ -185,6 +185,8 @@ export type PersistOutcome = {
   opportunityLevel: OpportunityLevel;
   websiteStatus: WebsiteStatus;
   isNew: boolean;
+  /** `true` quando esta empresa foi registrada como possivel duplicata cross-source (SPEC 1.2 FASE 7 §4). */
+  possibleDuplicate: boolean;
 };
 
 /**
@@ -208,6 +210,7 @@ export async function persistBusiness(
   let companyId: string;
   let row: CompanyUpsert;
   let isNew: boolean;
+  let possibleDuplicate = false;
 
   if (identity.kind === 'EXACT' || identity.kind === 'CONSOLIDATED') {
     companyId = identity.company.id;
@@ -248,6 +251,8 @@ export async function persistBusiness(
           companyId,
           code: evidenceError.code,
         });
+      } else {
+        possibleDuplicate = true;
       }
     }
   }
@@ -282,5 +287,6 @@ export async function persistBusiness(
     opportunityLevel: row.opportunity_level,
     websiteStatus: row.website_status,
     isNew,
+    possibleDuplicate,
   };
 }

@@ -3,8 +3,11 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Search } from 'lucide-react';
-import { Button, Card, ErrorMessage, Field, Input, LinkButton, Select } from '@/components/ui';
+import { Badge, Button, Card, ErrorMessage, Field, Input, LinkButton, Select } from '@/components/ui';
 import type { ProspectingEvent, ProspectingSummary } from '@/lib/prospecting/run';
+
+/** SPEC 1.2 FASE 7 §1: teto herdado de 60 removido — estes sao os unicos valores aceitos. */
+const LIMIT_OPTIONS = [25, 50, 100, 250, 500] as const;
 
 type Status = 'idle' | 'running' | 'done' | 'error';
 
@@ -29,8 +32,7 @@ export function ProspectingForm() {
       city: String(formData.get('city') ?? ''),
       state: String(formData.get('state') ?? ''),
       country: String(formData.get('country') ?? ''),
-      radiusKm: formData.get('radiusKm') ? Number(formData.get('radiusKm')) : undefined,
-      limit: Number(formData.get('limit') ?? 60),
+      limit: Number(formData.get('limit') ?? 25),
     };
 
     setStatus('running');
@@ -132,27 +134,18 @@ export function ProspectingForm() {
             </Field>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Pais" htmlFor="country">
               <Input id="country" name="country" defaultValue="Brasil" />
             </Field>
 
-            <Field label="Raio" htmlFor="radiusKm" hint="Opcional. Ate 50 km.">
-              <Select id="radiusKm" name="radiusKm" defaultValue="">
-                <option value="">Sem raio definido</option>
-                <option value="5">5 km</option>
-                <option value="10">10 km</option>
-                <option value="20">20 km</option>
-                <option value="30">30 km</option>
-                <option value="50">50 km</option>
-              </Select>
-            </Field>
-
-            <Field label="Maximo de empresas" htmlFor="limit" hint="Controla o custo da API.">
-              <Select id="limit" name="limit" defaultValue="60">
-                <option value="20">20</option>
-                <option value="40">40</option>
-                <option value="60">60</option>
+            <Field label="Maximo de empresas" htmlFor="limit" hint="Busca gratuita via OpenStreetMap, sem custo de API.">
+              <Select id="limit" name="limit" defaultValue="25">
+                {LIMIT_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
               </Select>
             </Field>
           </div>
@@ -165,6 +158,12 @@ export function ProspectingForm() {
             )}
             {running ? 'Procurando...' : 'ENCONTRAR LEADS'}
           </Button>
+
+          <p className="flex flex-wrap items-center gap-2 text-xs text-ink-mute">
+            <span>Fontes desta busca:</span>
+            <Badge tone="positive">OpenStreetMap · gratuita</Badge>
+            <span className="text-ink-mute/70">Google desativado · Foursquare ainda nao implementado</span>
+          </p>
         </form>
       </Card>
 
@@ -221,15 +220,31 @@ export function ProspectingForm() {
 
               {summary.limitReached ? (
                 <p className="text-xs text-ink-mute">
-                  Pesquisa limitada ao numero maximo configurado ({summary.found} empresas). Refine
+                  Pesquisa limitada ao numero maximo configurado ({summary.rawFound} empresas). Refine
                   por bairro ou segmento para cobrir mais.
                 </p>
               ) : null}
 
               <ul className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">{summary.rawFound}</span>
+                  encontradas
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
                   <span className="block text-lg font-semibold text-ink">{summary.found}</span>
-                  empresas encontradas
+                  unicas
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">{summary.newCompanies}</span>
+                  novas
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">{summary.alreadyKnown}</span>
+                  atualizadas
+                </li>
+                <li className="rounded-lg bg-canvas p-3">
+                  <span className="block text-lg font-semibold text-ink">{summary.duplicatesFlagged}</span>
+                  duplicatas sinalizadas
                 </li>
                 <li className="rounded-lg bg-canvas p-3">
                   <span className="block text-lg font-semibold text-ink">{summary.withoutWebsite}</span>
@@ -240,26 +255,17 @@ export function ProspectingForm() {
                   excelentes oportunidades
                 </li>
                 <li className="rounded-lg bg-canvas p-3">
-                  <span className="block text-lg font-semibold text-ink">{summary.alreadyKnown}</span>
-                  ja estavam na base
-                </li>
-                <li className="rounded-lg bg-canvas p-3">
-                  <span className="block text-lg font-semibold text-ink">{summary.newCompanies}</span>
-                  novas empresas
-                </li>
-                <li className="rounded-lg bg-canvas p-3">
                   <span className="block text-lg font-semibold text-ink">{summary.qualified}</span>
                   oportunidades qualificadas
                 </li>
-                <li className="rounded-lg bg-canvas p-3">
-                  <span className="block text-lg font-semibold text-ink">0</span>
-                  duplicatas criadas
-                </li>
-                <li className="rounded-lg bg-canvas p-3">
-                  <span className="block text-lg font-semibold text-ink">{summary.fromCache}</span>
-                  reaproveitadas do cache
-                </li>
               </ul>
+
+              <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-mute">
+                <span>Fonte: {summary.sources.length ? summary.sources.join(' + ') : 'Nenhuma'}</span>
+                <span>Duracao: {(summary.durationMs / 1000).toFixed(1)}s</span>
+                <span>Cache da busca: {summary.cacheHit ? 'reaproveitado' : 'consulta nova'}</span>
+                <span>Presenca digital em cache: {summary.fromCache}</span>
+              </p>
 
               <LinkButton href="/companies" variant="primary" className="sm:self-start">
                 Ver resultados

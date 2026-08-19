@@ -8,6 +8,10 @@ import {
 
 /** Validacao de toda entrada vinda do cliente (SPEC 33/47). */
 
+/** Opcoes de limite da FASE 7 (SPEC 1.2 §24) — nunca um valor arbitrario fora desta lista. */
+export const PROSPECTING_LIMITS = [25, 50, 100, 250, 500] as const;
+export type ProspectingLimit = (typeof PROSPECTING_LIMITS)[number];
+
 export const prospectingSearchSchema = z.object({
   segment: z
     .string()
@@ -17,10 +21,16 @@ export const prospectingSearchSchema = z.object({
   city: z.string().trim().min(2, 'Informe a cidade.').max(120, 'Cidade muito longa.'),
   state: z.string().trim().max(60).optional().or(z.literal('')),
   country: z.string().trim().max(60).optional().or(z.literal('')),
-  /** Raio em quilometros; o Google aceita ate 50 km. */
+  /** Raio em quilometros; usado apenas por fontes que aceitam ponto+raio. */
   radiusKm: z.coerce.number().int().min(1).max(50).optional(),
-  /** Teto de resultados por execucao — controla custo de API (SPEC 37). */
-  limit: z.coerce.number().int().min(1).max(60).default(60),
+  /** Validado no servidor tambem (SPEC 1.2 §24): so os 5 valores oficiais, nunca um teto arbitrario. */
+  limit: z.coerce
+    .number()
+    .int()
+    .refine((value): value is ProspectingLimit => (PROSPECTING_LIMITS as readonly number[]).includes(value), {
+      message: 'Escolha um limite entre 25, 50, 100, 250 ou 500.',
+    })
+    .default(25),
 });
 
 export type ProspectingSearchInput = z.infer<typeof prospectingSearchSchema>;
@@ -33,6 +43,10 @@ export const companyFiltersSchema = z.object({
   phone: z.enum(['all', 'available', 'unavailable']).default('all'),
   level: z.enum(['all', 'BAIXA', 'MEDIA', 'ALTA', 'EXCELENTE']).default('all'),
   minScore: z.coerce.number().int().min(0).max(100).optional(),
+  /** Fonte de descoberta (SPEC 1.2 FASE 7 §5). `MULTI_SOURCE` = encontrada em mais de uma fonte. */
+  source: z
+    .enum(['all', 'OPENSTREETMAP', 'GOOGLE_PLACES', 'FOURSQUARE', 'LEGACY', 'MULTI_SOURCE'])
+    .default('all'),
   city: z.string().trim().max(120).optional(),
   q: z.string().trim().max(120).optional(),
   /** Ordenacao dos resultados (SPEC 1.1 §47). */

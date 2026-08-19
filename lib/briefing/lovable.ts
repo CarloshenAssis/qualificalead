@@ -1,25 +1,28 @@
 import type { BriefingManualData, Company } from '@/types/database';
-import { NOT_FOUND_LABEL, suggestedSiteStructure } from './generate';
+import { DEFAULT_SOURCE_LABEL, NOT_FOUND_LABEL, suggestedSiteStructure } from './generate';
 import { formatPhoneDisplay, whatsappLink } from '@/lib/whatsapp/phone';
 
 /**
  * Prompt pronto para colar no Lovable (SPEC 27).
  * Inclui explicitamente o que NAO se sabe, para que a ferramenta nao invente conteudo.
  */
-export function buildLovablePrompt(company: Company, manual: BriefingManualData = {}): string {
+export function buildLovablePrompt(
+  company: Company,
+  manual: BriefingManualData = {},
+  sourceLabel: string = DEFAULT_SOURCE_LABEL,
+): string {
   const wa = whatsappLink(company.phone_international ?? company.phone);
   const location = [company.city, company.state].filter(Boolean).join(' - ');
 
   const known: string[] = [
     `Nome: ${company.name}`,
+    `Fonte dos dados: ${sourceLabel}`,
     company.category ? `Segmento: ${company.category}` : null,
     location ? `Cidade/Estado: ${location}` : null,
     company.address ? `Endereco: ${company.address}` : null,
     company.phone ? `Telefone: ${formatPhoneDisplay(company.phone)}` : null,
     wa ? `WhatsApp: ${wa}` : null,
-    company.rating !== null
-      ? `Avaliacao no Google: ${company.rating} (${company.review_count ?? 0} avaliacoes)`
-      : null,
+    company.rating !== null ? `Avaliacao: ${company.rating} (${company.review_count ?? 0} avaliacoes)` : null,
     company.instagram_url && company.instagram_status === 'CONFIRMED'
       ? `Instagram confirmado: ${company.instagram_url}`
       : null,
@@ -109,7 +112,7 @@ export function buildLovablePrompt(company: Company, manual: BriefingManualData 
       location ? ` e "${location}"` : ''
     }.`,
     '- Dados estruturados schema.org/LocalBusiness com nome, endereco e telefone reais informados acima.',
-    company.google_maps_url ? `- Link para a ficha no Google: ${company.google_maps_url}` : null,
+    company.google_maps_url ? `- Link para a ficha: ${company.google_maps_url}` : null,
     '- Headings semanticos (um unico h1 por pagina).',
     '',
     'ESTILO',

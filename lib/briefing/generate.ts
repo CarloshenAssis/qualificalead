@@ -2,6 +2,10 @@ import type { BriefingManualData, Company } from '@/types/database';
 import { formatScoreBreakdown } from '@/lib/scoring/score';
 import { instagramConfidenceLabel, levelLabel } from '@/lib/scoring/config';
 import { formatPhoneDisplay, whatsappLink } from '@/lib/whatsapp/phone';
+import { SOURCE_LABELS } from '@/lib/prospecting/sources/types';
+
+/** Quando quem chama nao informa a fonte, trata como origem desconhecida (SPEC 1.2 §76) — nunca assume Google. */
+export const DEFAULT_SOURCE_LABEL = SOURCE_LABELS.LEGACY;
 
 /**
  * Briefing deterministico montado apenas com o que foi observado (SPEC 25).
@@ -30,7 +34,7 @@ function auditFields(company: Company) {
     { label: 'Telefone', present: Boolean(company.phone || company.phone_international) },
     { label: 'Website', present: company.website_status === 'HAS_WEBSITE' },
     { label: 'Instagram', present: Boolean(company.instagram_url) },
-    { label: 'Avaliacao no Google', present: company.rating !== null },
+    { label: 'Avaliacao', present: company.rating !== null },
     { label: 'Quantidade de avaliacoes', present: company.review_count !== null },
     { label: 'Horario de funcionamento', present: Boolean(company.opening_hours?.length) },
     { label: 'Descricao publica', present: Boolean(company.description) },
@@ -56,7 +60,7 @@ export function suggestedSiteStructure(company: Company, manual: BriefingManualD
   if (manual.products?.trim()) pages.push('Produtos (conteudo informado pelo cliente)');
 
   if (company.rating !== null && (company.review_count ?? 0) > 0) {
-    pages.push(`Prova social (avaliacao ${company.rating} com ${company.review_count} avaliacoes no Google)`);
+    pages.push(`Prova social (avaliacao ${company.rating} com ${company.review_count} avaliacoes)`);
   }
 
   pages.push('Contato (telefone, WhatsApp, endereco e mapa)');
@@ -68,7 +72,11 @@ export function suggestedSiteStructure(company: Company, manual: BriefingManualD
   return pages;
 }
 
-export function buildBriefing(company: Company, manual: BriefingManualData = {}): string {
+export function buildBriefing(
+  company: Company,
+  manual: BriefingManualData = {},
+  sourceLabel: string = DEFAULT_SOURCE_LABEL,
+): string {
   const audit = auditFields(company);
   const wa = whatsappLink(company.phone_international ?? company.phone);
 
@@ -148,7 +156,9 @@ export function buildBriefing(company: Company, manual: BriefingManualData = {})
       `- WhatsApp: ${value(wa)}`,
     ]),
     '',
-    section('GOOGLE', [
+    section('FONTE DOS DADOS', [`- ${sourceLabel}`]),
+    '',
+    section('PERFIL COMERCIAL', [
       `- Avaliacao: ${company.rating !== null ? company.rating : NOT_FOUND_LABEL}`,
       `- Quantidade de avaliacoes: ${company.review_count ?? NOT_FOUND_LABEL}`,
       `- Situacao: ${value(company.business_status)}`,
@@ -165,7 +175,7 @@ export function buildBriefing(company: Company, manual: BriefingManualData = {})
     section('DESCRICAO ENCONTRADA', [`- ${value(company.description, NOT_FOUND_LABEL)}`]),
     '',
     section(
-      'INFORMACOES AUTOMATICAS (coletadas do Google)',
+      `INFORMACOES AUTOMATICAS (coletadas de ${sourceLabel})`,
       audit.present.map((f) => `- ${f}`),
     ),
     '',

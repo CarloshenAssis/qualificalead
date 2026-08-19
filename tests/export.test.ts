@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { buildCsv } from '@/lib/export/csv';
 import { buildXlsx, buildXlsxFromRows } from '@/lib/export/xlsx';
 import { EXPORT_HEADERS } from '@/lib/export/rows';
-import type { Company } from '@/types/database';
+import type { CompanyWithLead } from '@/types/database';
 
-function company(overrides: Partial<Company> = {}): Company {
+function company(overrides: Partial<CompanyWithLead> = {}): CompanyWithLead {
   return {
     id: 'id-1',
     user_id: 'user-1',
@@ -50,6 +50,8 @@ function company(overrides: Partial<Company> = {}): Company {
     created_at: '2026-01-01T12:00:00.000Z',
     updated_at: '2026-01-01T12:00:00.000Z',
     last_checked_at: null,
+    leads: null,
+    lead_sources: [],
     ...overrides,
   };
 }
@@ -68,6 +70,33 @@ describe('buildCsv', () => {
 
   it('inclui o link de WhatsApp normalizado', () => {
     expect(buildCsv([company()])).toContain('https://wa.me/5512999990000');
+  });
+
+  it('inclui as colunas de fonte (SPEC 1.2 FASE 7 §7)', () => {
+    for (const header of ['source', 'source_id', 'source_url', 'source_quality']) {
+      expect(EXPORT_HEADERS).toContain(header);
+    }
+
+    const csv = buildCsv([
+      company({
+        lead_sources: [
+          { source: 'OPENSTREETMAP', source_id: 'node/1', source_url: 'https://osm.example/1', source_quality: 'HIGH' },
+        ],
+      }),
+    ]);
+    expect(csv).toContain('OPENSTREETMAP,node/1,https://osm.example/1,HIGH');
+  });
+
+  it('preserva todas as fontes de um lead MULTI_SOURCE, alinhadas por posicao', () => {
+    const csv = buildCsv([
+      company({
+        lead_sources: [
+          { source: 'OPENSTREETMAP', source_id: 'node/1', source_url: 'https://osm.example/1', source_quality: 'HIGH' },
+          { source: 'GOOGLE_PLACES', source_id: 'ChIJ9', source_url: 'https://maps.example/9', source_quality: 'MEDIUM' },
+        ],
+      }),
+    ]);
+    expect(csv).toContain('OPENSTREETMAP; GOOGLE_PLACES,node/1; ChIJ9,https://osm.example/1; https://maps.example/9,HIGH; MEDIUM');
   });
 });
 

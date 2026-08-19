@@ -1,13 +1,17 @@
 /**
  * Fluxo real pela interface (SPEC 1.1 §64): login -> painel -> empresas -> filtros ->
- * ficha -> WhatsApp -> status -> briefing -> prompt -> copiar -> exportar -> logout,
- * checando tambem responsividade e ausencia de overflow horizontal.
+ * ficha -> WhatsApp -> status -> briefing -> prompt -> copiar -> exportar -> prospeccao
+ * (limites e status de fontes, SPEC 1.2 FASE 7) -> logout, checando tambem
+ * responsividade e ausencia de overflow horizontal em /companies, na ficha e em
+ * /prospecting nas 6 larguras da SPEC 1.2 §8 (375/390/414/768/1024/1280px).
  *
  *   npm run build && npm start          # em outro terminal
  *   node scripts/verify-ui.mjs
  *
  * Requer ao menos uma empresa na base do usuario de teste (rode antes
- * `node scripts/verify-supabase.mjs`, que cria a empresa "Cantina E2E").
+ * `node scripts/verify-supabase.mjs`, que cria a empresa "Cantina E2E"). Nao dispara
+ * uma prospeccao real (isso e o papel de `npm run smoke:osm`) — so confere que o
+ * formulario mostra os novos limites e o status das fontes.
  */
 import { chromium } from 'playwright-core';
 
@@ -57,11 +61,13 @@ try {
   await page.goto(`${BASE}/companies?website=without`, { waitUntil: 'networkidle' });
   await page.click('a:has-text("Ver detalhes")');
   await page.waitForURL('**/companies/**', { timeout: 20000 });
+  const fichaUrl = page.url();
   const ficha = await page.textContent('body');
   check('ficha mostra o score', true, /\d+\/100/.test(ficha));
   check('ficha mostra a justificativa', true, ficha.includes('Site nao identificado'));
   check('ficha mostra acao recomendada', true, ficha.includes('ACAO RECOMENDADA') || /Acao recomendada/i.test(ficha));
   check('ficha mostra o CRM', true, ficha.includes('CRM'));
+  check('ficha mostra a secao Fonte (SPEC 1.2 FASE 7 §5/§6)', true, ficha.includes('Fonte'));
 
   // 6. WhatsApp com telefone valido
   const wa = await page.getAttribute('a:has-text("WhatsApp")', 'href');
@@ -111,22 +117,30 @@ try {
   const buffer = await xlsx.body();
   check('XLSX e um pacote ZIP valido', 'PK', String.fromCharCode(buffer[0], buffer[1]));
 
-  // 12. Sem overflow horizontal no celular (390px)
-  await page.goto(`${BASE}/companies`, { waitUntil: 'networkidle' });
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth > window.innerWidth + 1,
-  );
-  check('sem overflow horizontal em 390px', false, overflow);
+  // 12. Prospeccao: limites e status de fontes da FASE 7 (sem disparar uma busca real)
+  await page.goto(`${BASE}/prospecting`, { waitUntil: 'networkidle' });
+  const prospectPage = await page.textContent('body');
+  check('form mostra os novos limites (SPEC 1.2 FASE 7 §1)', true, ['25', '50', '100', '250', '500'].every((n) => prospectPage.includes(n)));
+  check('form mostra status das fontes sem virar selecao (SPEC 1.2 FASE 7 §3)', true, prospectPage.includes('OpenStreetMap') && prospectPage.includes('Google desativado'));
 
-  for (const width of [375, 414, 768, 1024, 1280]) {
-    await page.setViewportSize({ width, height: 900 });
-    const over = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 1,
-    );
-    check(`sem overflow horizontal em ${width}px`, false, over);
+  // 13. Sem overflow horizontal nas paginas alteradas pela FASE 7, nas 6 larguras da SPEC 1.2 §8
+  const WIDTHS = [375, 390, 414, 768, 1024, 1280];
+  const PAGES_TO_CHECK = [
+    ['/companies', `${BASE}/companies`],
+    ['ficha da empresa', fichaUrl],
+    ['/prospecting', `${BASE}/prospecting`],
+  ];
+  for (const [label, target] of PAGES_TO_CHECK) {
+    await page.goto(target, { waitUntil: 'networkidle' });
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      const over = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      check(`sem overflow horizontal em ${label} @ ${width}px`, false, over);
+    }
   }
+  await page.setViewportSize({ width: 390, height: 844 });
 
-  // 13. Logout
+  // 14. Logout
   await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' });
   await page.click('button:has-text("Sair da conta")');
   await page.waitForURL('**/login**', { timeout: 20000 });

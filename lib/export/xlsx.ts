@@ -1,4 +1,4 @@
-import type { Company } from '@/types/database';
+import type { CompanyWithLead } from '@/types/database';
 import { EXPORT_HEADERS, companyToRow } from './rows';
 
 /**
@@ -163,6 +163,9 @@ export function buildXlsxFromRows(rows: string[][]): Uint8Array {
   ]);
 }
 
-export function buildXlsx(companies: Company[]): Uint8Array {
-  return buildXlsxFromRows([[...EXPORT_HEADERS], ...companies.map((company) => companyToRow(company))]);
+export function buildXlsx(companies: CompanyWithLead[]): Uint8Array {
+  return buildXlsxFromRows([
+    [...EXPORT_HEADERS],
+    ...companies.map((company) => companyToRow(company, undefined, company.lead_sources ?? [])),
+  ]);
 }

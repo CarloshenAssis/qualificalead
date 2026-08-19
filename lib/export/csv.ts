@@ -1,4 +1,4 @@
-import type { Company } from '@/types/database';
+import type { CompanyWithLead } from '@/types/database';
 import { EXPORT_HEADERS, companyToRow } from './rows';
 
 /** Escapa um valor de celula para CSV (RFC 4180). */
@@ -8,10 +8,14 @@ function escapeCell(value: string): string {
   return needsQuotes ? `"${escaped}"` : escaped;
 }
 
-export function buildCsv(companies: Company[]): string {
+export function buildCsv(companies: CompanyWithLead[]): string {
   const lines = [
     EXPORT_HEADERS.map(escapeCell).join(','),
-    ...companies.map((company) => companyToRow(company).map(escapeCell).join(',')),
+    ...companies.map((company) =>
+      companyToRow(company, undefined, company.lead_sources ?? [])
+        .map(escapeCell)
+        .join(','),
+    ),
   ];
 
   // BOM para o Excel abrir acentuacao corretamente.

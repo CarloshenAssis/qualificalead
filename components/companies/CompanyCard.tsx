@@ -3,7 +3,8 @@ import { Badge, Card, ExternalLinkButton, LinkButton } from '@/components/ui';
 import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import { AddToPipelineButton } from './AddToPipelineButton';
 import { formatPhoneDisplay, whatsappLink } from '@/lib/whatsapp/phone';
-import { WEBSITE_STATUS_LABELS, type CompanyWithLead } from '@/types/database';
+import { summarizeSources } from '@/lib/companies/source-display';
+import { SOURCE_QUALITY_LABELS, WEBSITE_STATUS_LABELS, type CompanyWithLead } from '@/types/database';
 import { NextActionTag } from './NextActionCard';
 
 /** Cartao de resultado (SPEC 23) — em cards tambem no celular, sem tabela horizontal. */
@@ -11,6 +12,7 @@ export function CompanyCard({ company }: { company: CompanyWithLead }) {
   const lead = company.leads?.[0] ?? null;
   const wa = whatsappLink(company.phone_international ?? company.phone);
   const location = [company.city, company.state].filter(Boolean).join(' - ');
+  const sourceInfo = summarizeSources(company.lead_sources);
 
   return (
     <Card className="flex flex-col gap-3">
@@ -55,6 +57,10 @@ export function CompanyCard({ company }: { company: CompanyWithLead }) {
         )}
 
         {lead ? <Badge tone="brand">{lead.status}</Badge> : null}
+
+        <Badge tone="neutral" title={sourceInfo.quality ? SOURCE_QUALITY_LABELS[sourceInfo.quality] : undefined}>
+          {sourceInfo.label}
+        </Badge>
       </div>
 
       <NextActionTag action={company.next_action} />
@@ -79,7 +85,7 @@ export function CompanyCard({ company }: { company: CompanyWithLead }) {
         ) : null}
 
         {company.google_maps_url ? (
-          <ExternalLinkButton href={company.google_maps_url} aria-label={`Google Maps de ${company.name}`}>
+          <ExternalLinkButton href={company.google_maps_url} aria-label={`Ver ${company.name} no mapa`}>
             <MapPin className="size-4" aria-hidden />
             Maps
           </ExternalLinkButton>

@@ -94,6 +94,21 @@ export function CompanyFilters({ filters }: { filters: Filters }) {
               <option value="BAIXA">Baixa</option>
             </Select>
           </Field>
+
+          {/*
+            Foursquare fica de fora de proposito (SPEC 1.2 FASE 7 §3): a fonte nao esta
+            implementada, entao nenhum lead jamais tera esse valor — oferecer o filtro
+            seria uma opcao permanentemente vazia.
+          */}
+          <Field label="Fonte" htmlFor="source">
+            <Select id="source" name="source" defaultValue={filters.source}>
+              <option value="all">Todas</option>
+              <option value="OPENSTREETMAP">OpenStreetMap</option>
+              <option value="GOOGLE_PLACES">Google Places</option>
+              <option value="LEGACY">Origem nao registrada</option>
+              <option value="MULTI_SOURCE">Multiplas fontes</option>
+            </Select>
+          </Field>
         </div>
 
         <div className="flex flex-wrap gap-2">

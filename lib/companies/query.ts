@@ -5,7 +5,8 @@ import { INSTAGRAM_HIGH_CONFIDENCE_THRESHOLD } from '@/lib/scoring/config';
 /** Tamanho de pagina da listagem (SPEC 36). */
 export const PAGE_SIZE = 20;
 
-const COMPANY_COLUMNS = '*, leads(id, status, priority)';
+const COMPANY_COLUMNS =
+  '*, leads(id, status, priority), lead_sources(source, source_id, source_url, source_quality)';
 
 /**
  * Aplica os filtros da SPEC 13 sobre a tabela `companies`.
@@ -20,6 +21,7 @@ export function applyCompanyFilters<T>(query: T, filters: CompanyFilters): T {
     is: (column: string, value: unknown) => typeof q;
     gte: (column: string, value: unknown) => typeof q;
     ilike: (column: string, value: string) => typeof q;
+    in: (column: string, values: unknown[]) => typeof q;
   };
 
   if (filters.website === 'without') q = q.eq('website_status', 'NO_WEBSITE_DETECTED');
@@ -67,15 +69,43 @@ export const SORT_OPTIONS = {
 
 export type SortKey = keyof typeof SORT_OPTIONS;
 
+/**
+ * Ids de empresa que casam com o filtro de fonte (SPEC 1.2 FASE 7 §5), via a view
+ * `company_source_summary` (migration 0005) — o PostgREST nao expressa
+ * "mais de uma fonte distinta" (MULTI_SOURCE) sobre `lead_sources` crua, entao a
+ * agregacao mora na view. `null` significa "sem filtro de fonte" (nao restringe nada);
+ * um array (mesmo vazio) e a lista exata de ids a manter.
+ */
+async function companyIdsForSourceFilter(
+  supabase: SupabaseClient,
+  filters: CompanyFilters,
+): Promise<string[] | null> {
+  if (filters.source === 'all') return null;
+
+  let query = supabase.from('company_source_summary').select('company_id, sources, source_count');
+  query =
+    filters.source === 'MULTI_SOURCE' ? query.gt('source_count', 1) : query.contains('sources', [filters.source]);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('[companies] falha ao filtrar por fonte', { code: error.code });
+    return [];
+  }
+  return (data ?? []).map((row) => row.company_id as string);
+}
+
 /** Listagem paginada com filtros combinados e ordenacao (SPEC 21/23, SPEC 1.1 §47/§48). */
-export function companiesQuery(supabase: SupabaseClient, userId: string, filters: CompanyFilters) {
+export async function companiesQuery(supabase: SupabaseClient, userId: string, filters: CompanyFilters) {
   const from = (filters.page - 1) * PAGE_SIZE;
   const sort = SORT_OPTIONS[filters.sort];
 
-  const base = supabase
-    .from('companies')
-    .select(COMPANY_COLUMNS, { count: 'exact' })
-    .eq('user_id', userId);
+  const sourceIds = await companyIdsForSourceFilter(supabase, filters);
+  if (sourceIds && sourceIds.length === 0) {
+    return { data: [], count: 0, error: null };
+  }
+
+  let base = supabase.from('companies').select(COMPANY_COLUMNS, { count: 'exact' }).eq('user_id', userId);
+  if (sourceIds) base = base.in('id', sourceIds);
 
   return applyCompanyFilters(base, filters)
     .order(sort.column, { ascending: sort.ascending, nullsFirst: false })
@@ -84,12 +114,19 @@ export function companiesQuery(supabase: SupabaseClient, userId: string, filters
 }
 
 /** Mesma selecao, sem paginacao — usada na exportacao. */
-export function companiesExportQuery(
+export async function companiesExportQuery(
   supabase: SupabaseClient,
   userId: string,
   filters: CompanyFilters,
 ) {
-  const base = supabase.from('companies').select('*').eq('user_id', userId);
+  const sourceIds = await companyIdsForSourceFilter(supabase, filters);
+  if (sourceIds && sourceIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  let base = supabase.from('companies').select(COMPANY_COLUMNS).eq('user_id', userId);
+  if (sourceIds) base = base.in('id', sourceIds);
+
   const sort = SORT_OPTIONS[filters.sort];
 
   return applyCompanyFilters(base, filters)

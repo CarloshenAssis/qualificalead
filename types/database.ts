@@ -228,6 +228,8 @@ export type Briefing = {
 
 export type CompanyWithLead = Company & {
   leads: Pick<Lead, 'id' | 'status' | 'priority'>[] | null;
+  /** Todas as fontes que ja contribuiram para este lead (SPEC 1.2 FASE 7 §5/§7). */
+  lead_sources: Pick<LeadSource, 'source' | 'source_id' | 'source_url' | 'source_quality'>[] | null;
 };
 
 // --- Multi-source (SPEC 1.2 FASE 6) -----------------------------------------
@@ -235,6 +237,13 @@ export type CompanyWithLead = Company & {
 /** Completude do registro trazido por uma fonte — nao e score comercial (SPEC 1.2 §14). */
 export const SOURCE_QUALITY_LEVELS = ['LOW', 'MEDIUM', 'HIGH'] as const;
 export type SourceQualityLevel = (typeof SOURCE_QUALITY_LEVELS)[number];
+
+/** Rotulo de interface para a completude do registro (SPEC 1.2 FASE 7 §5) — nunca score comercial. */
+export const SOURCE_QUALITY_LABELS: Record<SourceQualityLevel, string> = {
+  HIGH: 'Dado completo',
+  MEDIUM: 'Dado parcial',
+  LOW: 'Dado basico',
+};
 
 /**
  * `HIGH` nunca aparece aqui: confianca alta funde automaticamente (vira duas linhas em

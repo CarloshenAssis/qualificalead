@@ -74,9 +74,14 @@ export const STAGE_MESSAGES: Record<ProspectingStage, string> = {
 
 export type ProspectingSummary = {
   status: SearchStatus;
+  /** Total devolvido pelas fontes, antes de remover duplicatas do mesmo lote (SPEC 1.2 FASE 7 §4). */
+  rawFound: number;
+  /** Depois de deduplicar o lote (Normalize -> Deduplicate). */
   found: number;
   saved: number;
+  /** Leads novos (nao existiam antes desta pesquisa). */
   newCompanies: number;
+  /** Leads ja conhecidos, atualizados com dados desta pesquisa (match exato ou consolidacao). */
   alreadyKnown: number;
   withoutWebsite: number;
   qualified: number;
@@ -88,6 +93,14 @@ export type ProspectingSummary = {
   fromCache: number;
   /** `true` quando alguma fonte devolveu o maximo permitido e pode haver mais empresas. */
   limitReached: boolean;
+  /** Nomes das fontes efetivamente consultadas nesta pesquisa (SPEC 1.2 FASE 7 §4). */
+  sources: string[];
+  /** `true` quando TODAS as fontes desta pesquisa vieram do cache de descoberta. */
+  cacheHit: boolean;
+  /** Duracao total da pesquisa, em milissegundos. */
+  durationMs: number;
+  /** Candidatos a duplicata cross-source registrados para revisao (nunca fundidos automaticamente). */
+  duplicatesFlagged: number;
 };
 
 export type ProspectingEvent =
@@ -339,25 +352,11 @@ export async function* runProspecting(
 
   console.info('[prospecting] inicio', { userId, segment: input.segment, city: input.city });
 
-  const emptySummary: ProspectingSummary = {
-    status: 'COMPLETED',
-    found: 0,
-    saved: 0,
-    newCompanies: 0,
-    alreadyKnown: 0,
-    withoutWebsite: 0,
-    qualified: 0,
-    excellent: 0,
-    high: 0,
-    enrichmentFailed: 0,
-    fromCache: 0,
-    limitReached: false,
-  };
-
   // Registry -> Selected Sources (SPEC 1.2 §20/§21/§23).
-  // Modo fixo em FREE por enquanto — a FASE 7 adiciona a escolha de modo/fontes na
-  // interface. Isso garante, por si so, que o Google nunca roda por padrao (§74) mesmo
-  // que GOOGLE_PLACES_ENABLED esteja ligado: a barreira de custo nao depende so da flag.
+  // Modo fixo em FREE de proposito (SPEC 1.2 FASE 7 §2/§3): a interface mostra o status
+  // das fontes, mas nao oferece troca de modo — nao vira um "painel de APIs". Isso
+  // garante, por si so, que o Google nunca roda por padrao (§74) mesmo que
+  // GOOGLE_PLACES_ENABLED esteja ligado: a barreira de custo nao depende so da flag.
   const { selected } = selectSources(getRegisteredSources(), DEFAULT_PROSPECTING_MODE);
 
   if (!selected.length) {
@@ -429,7 +428,29 @@ export async function* runProspecting(
 
   if (!normalized.length) {
     console.info('[prospecting] fim sem resultados', { userId, ms: Date.now() - startedAt });
-    yield { type: 'done', summary: emptySummary, searchId: null };
+    yield {
+      type: 'done',
+      summary: {
+        status: 'COMPLETED',
+        rawFound: rawBusinesses.length,
+        found: 0,
+        saved: 0,
+        newCompanies: 0,
+        alreadyKnown: 0,
+        withoutWebsite: 0,
+        qualified: 0,
+        excellent: 0,
+        high: 0,
+        enrichmentFailed: 0,
+        fromCache: 0,
+        limitReached,
+        sources: succeeded.map((o) => o.source.name),
+        cacheHit: searchCacheHit,
+        durationMs: Date.now() - startedAt,
+        duplicatesFlagged: 0,
+      },
+      searchId: null,
+    };
     return;
   }
 
@@ -563,6 +584,7 @@ export async function* runProspecting(
   const summary: ProspectingSummary = {
     // Falha parcial nunca e apresentada como sucesso (SPEC 1.1 §86).
     status: enrichmentFailed > 0 || persistFailed > 0 ? 'PARTIAL' : 'COMPLETED',
+    rawFound: rawBusinesses.length,
     found: normalized.length,
     saved: saved.length,
     newCompanies: saved.filter((r) => r.isNew).length,
@@ -574,6 +596,10 @@ export async function* runProspecting(
     enrichmentFailed,
     fromCache: digitalPresenceFromCache,
     limitReached,
+    sources: succeeded.map((o) => o.source.name),
+    cacheHit: searchCacheHit,
+    durationMs: Date.now() - startedAt,
+    duplicatesFlagged: saved.filter((r) => r.possibleDuplicate).length,
   };
 
   yield { type: 'stage', stage: 'done', message: STAGE_MESSAGES.done };
