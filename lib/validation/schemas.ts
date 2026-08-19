@@ -35,14 +35,26 @@ export const prospectingSearchSchema = z.object({
 
 export type ProspectingSearchInput = z.infer<typeof prospectingSearchSchema>;
 
+/**
+ * Um `<select>` "Qualquer" num formulario GET ainda envia o campo, so que vazio
+ * (`minRating=`) — nunca omite a chave. Sem isto, `z.coerce.number()` faz
+ * `Number('') === 0`, e o filtro vira "rating >= 0" de verdade: como colunas como
+ * `rating`/`review_count` sao `null` para fontes que nao as fornecem (ex.: OSM), esse
+ * `0` fantasma excluia toda empresa sem o dado, mesmo com "Qualquer" selecionado —
+ * a causa raiz de filtros que pareciam nao funcionar (correcao pontual).
+ */
+function optionalNumberFilter<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+}
+
 export const companyFiltersSchema = z.object({
   website: z.enum(['all', 'without', 'with']).default('all'),
-  minRating: z.coerce.number().min(0).max(5).optional(),
-  minReviews: z.coerce.number().int().min(0).optional(),
+  minRating: optionalNumberFilter(z.coerce.number().min(0).max(5)),
+  minReviews: optionalNumberFilter(z.coerce.number().int().min(0)),
   instagram: z.enum(['all', 'found', 'not_found', 'high_confidence', 'pending']).default('all'),
   phone: z.enum(['all', 'available', 'unavailable']).default('all'),
   level: z.enum(['all', 'BAIXA', 'MEDIA', 'ALTA', 'EXCELENTE']).default('all'),
-  minScore: z.coerce.number().int().min(0).max(100).optional(),
+  minScore: optionalNumberFilter(z.coerce.number().int().min(0).max(100)),
   /** Fonte de descoberta (SPEC 1.2 FASE 7 §5). `MULTI_SOURCE` = encontrada em mais de uma fonte. */
   source: z
     .enum(['all', 'OPENSTREETMAP', 'GOOGLE_PLACES', 'FOURSQUARE', 'LEGACY', 'MULTI_SOURCE'])

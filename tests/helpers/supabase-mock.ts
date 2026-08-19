@@ -16,15 +16,63 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type Row = Record<string, unknown>;
 
-type Filter = { column: string; op: 'eq' | 'in'; value: unknown };
+type Filter = {
+  column: string;
+  op: 'eq' | 'in' | 'gt' | 'gte' | 'ilike' | 'is_null' | 'not_null' | 'contains';
+  value: unknown;
+};
+
+/** `%termo%` (ilike do PostgREST) — sempre case-insensitive. */
+function ilikeMatch(cellValue: unknown, pattern: string): boolean {
+  if (typeof cellValue !== 'string') return false;
+  const needle = pattern.replace(/^%/, '').replace(/%$/, '').toLowerCase();
+  return cellValue.toLowerCase().includes(needle);
+}
 
 function applyFilters(rows: Row[], filters: Filter[]): Row[] {
   return rows.filter((row) =>
     filters.every((f) => {
-      if (f.op === 'eq') return row[f.column] === f.value;
-      return Array.isArray(f.value) && f.value.includes(row[f.column]);
+      const cell = row[f.column];
+      switch (f.op) {
+        case 'eq':
+          return cell === f.value;
+        case 'in':
+          return Array.isArray(f.value) && f.value.includes(cell);
+        case 'gt':
+          return typeof cell === 'number' && cell > (f.value as number);
+        case 'gte':
+          return typeof cell === 'number' && cell >= (f.value as number);
+        case 'ilike':
+          return ilikeMatch(cell, f.value as string);
+        case 'is_null':
+          return cell === null || cell === undefined;
+        case 'not_null':
+          return cell !== null && cell !== undefined;
+        case 'contains':
+          return Array.isArray(cell) && (f.value as unknown[]).every((v) => cell.includes(v));
+      }
     }),
   );
+}
+
+type OrderSpec = { column: string; ascending: boolean };
+
+function applyOrder(rows: Row[], orders: OrderSpec[]): Row[] {
+  if (!orders.length) return rows;
+  return [...rows].sort((a, b) => {
+    for (const { column, ascending } of orders) {
+      const av = a[column];
+      const bv = b[column];
+      // nullsFirst: false (unico modo usado hoje) — nulos sempre por ultimo, independente da direcao.
+      if ((av === null || av === undefined) && (bv === null || bv === undefined)) continue;
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      if (av === bv) continue;
+      const cmp = av < bv ? -1 : 1;
+      return ascending ? cmp : -cmp;
+    }
+    return 0;
+  });
 }
 
 export type RecordedCall = { table: string; op: string; args: unknown };
@@ -46,11 +94,20 @@ export function createSupabaseMock(
   let counter = 0;
   const genId = () => `generated-${++counter}`;
 
-  function selectChain(table: string, columns: string) {
+  function selectChain(table: string, columns: string, withCount: boolean) {
     const filters: Filter[] = [];
-    const resolveRows = () => {
+    const orders: OrderSpec[] = [];
+    let range: { from: number; to: number } | null = null;
+    let limitTo: number | null = null;
+
+    const resolveAll = () => {
       calls.push({ table, op: 'select', args: { columns, filters } });
-      return applyFilters(tables[table] ?? [], filters);
+      return applyOrder(applyFilters(tables[table] ?? [], filters), orders);
+    };
+    const resolveRows = () => {
+      const all = resolveAll();
+      const paged = range ? all.slice(range.from, range.to + 1) : limitTo !== null ? all.slice(0, limitTo) : all;
+      return { rows: paged, count: withCount ? all.length : null };
     };
     const chain = {
       eq(column: string, value: unknown) {
@@ -61,15 +118,55 @@ export function createSupabaseMock(
         filters.push({ column, op: 'in', value });
         return chain;
       },
-      maybeSingle: () => Promise.resolve({ data: resolveRows()[0] ?? null, error: null }),
+      gt(column: string, value: unknown) {
+        filters.push({ column, op: 'gt', value });
+        return chain;
+      },
+      gte(column: string, value: unknown) {
+        filters.push({ column, op: 'gte', value });
+        return chain;
+      },
+      ilike(column: string, value: string) {
+        filters.push({ column, op: 'ilike', value });
+        return chain;
+      },
+      contains(column: string, value: unknown[]) {
+        filters.push({ column, op: 'contains', value });
+        return chain;
+      },
+      is(column: string, value: null) {
+        filters.push({ column, op: value === null ? 'is_null' : 'eq', value });
+        return chain;
+      },
+      not(column: string, _operator: string, value: unknown) {
+        filters.push({ column, op: value === null ? 'not_null' : 'eq', value });
+        return chain;
+      },
+      order(column: string, opts?: { ascending?: boolean }) {
+        orders.push({ column, ascending: opts?.ascending ?? true });
+        return chain;
+      },
+      range(from: number, to: number) {
+        range = { from, to };
+        return chain;
+      },
+      limit(n: number) {
+        limitTo = n;
+        return chain;
+      },
+      maybeSingle: () => Promise.resolve({ data: resolveRows().rows[0] ?? null, error: null }),
       single: () => {
-        const rows = resolveRows();
+        const { rows } = resolveRows();
         return rows.length
           ? Promise.resolve({ data: rows[0], error: null })
           : Promise.resolve({ data: null, error: { code: 'PGRST116', message: 'not found' } });
       },
-      then(onResolve: (v: { data: Row[]; error: null }) => unknown, onReject?: (e: unknown) => unknown) {
-        return Promise.resolve({ data: resolveRows(), error: null }).then(onResolve, onReject);
+      then(
+        onResolve: (v: { data: Row[]; error: null; count: number | null }) => unknown,
+        onReject?: (e: unknown) => unknown,
+      ) {
+        const { rows, count } = resolveRows();
+        return Promise.resolve({ data: rows, error: null, count }).then(onResolve, onReject);
       },
     };
     return chain;
@@ -94,8 +191,8 @@ export function createSupabaseMock(
 
   function from(table: string) {
     return {
-      select(columns: string) {
-        return selectChain(table, columns);
+      select(columns: string, opts?: { count?: 'exact' }) {
+        return selectChain(table, columns, opts?.count === 'exact');
       },
       insert(row: Row | Row[]) {
         const rowsIn = Array.isArray(row) ? row : [row];

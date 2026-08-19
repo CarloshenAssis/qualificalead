@@ -36,7 +36,7 @@ describe('computeSourceCoverage', () => {
     expect(coverage.evaluableSignals).toEqual(
       expect.arrayContaining([
         'NO_WEBSITE',
-        'GOOGLE_PROFILE_COMPLETE',
+        'DIGITAL_PRESENCE_GAP',
         'HIGH_RATING',
         'REVIEW_COUNT',
         'INSTAGRAM_FOUND',
@@ -47,26 +47,32 @@ describe('computeSourceCoverage', () => {
     );
   });
 
-  it('OSM tem cobertura MEDIUM: sem rating, reviews e perfil comercial rico', () => {
+  it('OSM tem cobertura MEDIUM: sem rating nem reviews (o resto e avaliavel)', () => {
     const coverage = computeSourceCoverage(SOURCE_CAPABILITIES.OPENSTREETMAP);
     expect(coverage.level).toBe('MEDIUM');
-    expect(coverage.unavailableSignals.sort()).toEqual(
-      ['GOOGLE_PROFILE_COMPLETE', 'HIGH_RATING', 'REVIEW_COUNT', 'BUSINESS_ACTIVE'].sort(),
-    );
+    expect(coverage.unavailableSignals.sort()).toEqual(['HIGH_RATING', 'REVIEW_COUNT'].sort());
     expect(coverage.evaluableSignals.sort()).toEqual(
-      ['NO_WEBSITE', 'INSTAGRAM_FOUND', 'INSTAGRAM_HIGH_CONFIDENCE', 'PHONE_AVAILABLE'].sort(),
+      [
+        'NO_WEBSITE',
+        'DIGITAL_PRESENCE_GAP',
+        'INSTAGRAM_FOUND',
+        'INSTAGRAM_HIGH_CONFIDENCE',
+        'PHONE_AVAILABLE',
+        'BUSINESS_ACTIVE',
+      ].sort(),
     );
   });
 });
 
-describe('computeOpportunityScore — regressao do Google (SPEC 1.2 §35)', () => {
-  it('reproduz exatamente o score da 1.1 quando a fonte tem capacidade plena', () => {
+describe('computeOpportunityScore — capacidade plena (SPEC 1.2 §35)', () => {
+  it('capacidade explicita do Google reproduz exatamente o resultado sem capacidades informadas', () => {
     const withCapabilities = computeOpportunityScore(fullSignalInput(), SOURCE_CAPABILITIES.GOOGLE_PLACES);
     const withoutCapabilities = computeOpportunityScore(fullSignalInput());
 
-    // 30 + 15 + 15 + 12 + 10 + 5 + 5 + 5 — mesma soma do teste de regressao da 1.1.
-    expect(withCapabilities.score).toBe(97);
-    expect(withCapabilities.level).toBe('EXCELENTE');
+    // 30 (site) + 15 (rating) + 12 (183 avaliacoes) + 10 (insta) + 5 (insta alta confianca)
+    // + 5 (telefone) + 5 (ativa). Sem DIGITAL_PRESENCE_GAP: fullSignalInput tem Instagram.
+    expect(withCapabilities.score).toBe(82);
+    expect(withCapabilities.level).toBe('ALTA');
     expect(withCapabilities).toEqual(withoutCapabilities);
     expect(withCapabilities.coverage.level).toBe('HIGH');
   });
@@ -89,9 +95,11 @@ describe('computeOpportunityScore — sinais nao avaliaveis pela fonte (SPEC 1.2
 
     expect(result.breakdown.some((i) => i.code === 'HIGH_RATING')).toBe(false);
     expect(result.breakdown.some((i) => i.code === 'REVIEW_COUNT')).toBe(false);
-    expect(result.breakdown.some((i) => i.code === 'GOOGLE_PROFILE_COMPLETE')).toBe(false);
-    expect(result.breakdown.some((i) => i.code === 'BUSINESS_ACTIVE')).toBe(false);
-    // O que a fonte consegue observar continua contando normalmente.
+    // Ha Instagram encontrado no fullSignalInput: a lacuna digital nao e ampla o suficiente.
+    expect(result.breakdown.some((i) => i.code === 'DIGITAL_PRESENCE_GAP')).toBe(false);
+    // OSM consegue informar business_status (convencoes disused:/was: das tags) — o que a
+    // fonte de fato consegue observar continua contando normalmente.
+    expect(result.breakdown.some((i) => i.code === 'BUSINESS_ACTIVE')).toBe(true);
     expect(result.breakdown.some((i) => i.code === 'NO_WEBSITE')).toBe(true);
     expect(result.breakdown.some((i) => i.code === 'PHONE_AVAILABLE')).toBe(true);
   });
@@ -116,7 +124,8 @@ describe('computeOpportunityScore — sinais nao avaliaveis pela fonte (SPEC 1.2
   });
 
   it('guarda contra inflacao: cobertura MEDIUM (OSM) nunca chega a EXCELENTE', () => {
-    // Poucos sinais aplicaveis, todos positivos: NO_WEBSITE + PHONE + INSTAGRAM x2.
+    // NO_WEBSITE + INSTAGRAM x2 + PHONE + BUSINESS_ACTIVE = 55 (MEDIA) — nao ha
+    // DIGITAL_PRESENCE_GAP porque ha Instagram encontrado.
     const result = computeOpportunityScore(
       fullSignalInput({
         rating: null,
@@ -131,10 +140,29 @@ describe('computeOpportunityScore — sinais nao avaliaveis pela fonte (SPEC 1.2
 
   it('nao altera os pesos: cada sinal aplicavel ainda vale exatamente SCORE_WEIGHTS', () => {
     const onlyWebsite = computeOpportunityScore(
+      fullSignalInput({
+        rating: null,
+        review_count: null,
+        phone: null,
+        instagram_url: null,
+        address: null,
+        business_status: null,
+      }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+    // Sem endereco (DIGITAL_PRESENCE_GAP exige identificabilidade) e sem business_status
+    // (BUSINESS_ACTIVE nao inventa "ativa" do silencio): sobra so NO_WEBSITE isolado.
+    expect(onlyWebsite.score).toBe(SCORE_WEIGHTS.NO_WEBSITE);
+  });
+
+  it('empresa OSM sem site, sem Instagram e com endereco tambem ganha a lacuna digital', () => {
+    const result = computeOpportunityScore(
       fullSignalInput({ rating: null, review_count: null, phone: null, instagram_url: null }),
       SOURCE_CAPABILITIES.OPENSTREETMAP,
     );
-    expect(onlyWebsite.score).toBe(SCORE_WEIGHTS.NO_WEBSITE);
+    // NO_WEBSITE (30) + DIGITAL_PRESENCE_GAP (30) + BUSINESS_ACTIVE (5) = 65.
+    expect(result.score).toBe(SCORE_WEIGHTS.NO_WEBSITE + SCORE_WEIGHTS.DIGITAL_PRESENCE_GAP + SCORE_WEIGHTS.BUSINESS_ACTIVE);
+    expect(result.breakdown.some((i) => i.code === 'DIGITAL_PRESENCE_GAP')).toBe(true);
   });
 });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { classifyScore, computeOpportunityScore, type ScoreInput } from '@/lib/scoring/score';
 import { MAX_SCORE, SCORE_WEIGHTS } from '@/lib/scoring/config';
+import { SOURCE_CAPABILITIES } from '@/lib/prospecting/sources/types';
 
 /** Empresa minima: nenhum sinal positivo alem do que o teste ligar. */
 function baseInput(overrides: Partial<ScoreInput> = {}): ScoreInput {
@@ -117,7 +118,7 @@ describe('computeOpportunityScore', () => {
     expect(closed.breakdown.some((i) => i.code === 'BUSINESS_ACTIVE')).toBe(false);
   });
 
-  it('reproduz a composicao do exemplo da especificacao', () => {
+  it('reproduz a composicao do exemplo da especificacao (com Instagram, sem lacuna digital)', () => {
     const result = computeOpportunityScore(
       baseInput({
         website_status: 'NO_WEBSITE_DETECTED',
@@ -135,20 +136,19 @@ describe('computeOpportunityScore', () => {
       }),
     );
 
-    // 30 + 15 + 15 + 12 + 10 + 5 + 5 + 5
-    expect(result.score).toBe(97);
-    expect(result.level).toBe('EXCELENTE');
+    // 30 (site) + 15 (rating) + 12 (183 avaliacoes) + 10 (insta) + 5 (insta alta confianca)
+    // + 5 (telefone) + 5 (ativa). DIGITAL_PRESENCE_GAP nao entra: ha Instagram encontrado.
+    expect(result.score).toBe(82);
+    expect(result.level).toBe('ALTA');
   });
 
-  it('limita o score em 100 e classifica como excelente', () => {
+  it('atinge o score maximo quando ha site nao identificado + lacuna digital + demais sinais', () => {
     const result = computeOpportunityScore(
       baseInput({
         website_status: 'NO_WEBSITE_DETECTED',
         rating: 4.8,
         review_count: 250,
         phone: '(12) 99999-0000',
-        instagram_url: 'https://instagram.com/empresa',
-        instagram_confidence: 95,
         business_status: 'OPERATIONAL',
         address: 'Rua A, 100',
         category: 'Restaurante',
@@ -158,6 +158,8 @@ describe('computeOpportunityScore', () => {
       }),
     );
 
+    // 30 (site) + 30 (lacuna digital: sem site e sem Instagram) + 15 (rating) + 15 (250 avaliacoes)
+    // + 5 (telefone) + 5 (ativa) = 100.
     expect(result.score).toBe(MAX_SCORE);
     expect(result.level).toBe('EXCELENTE');
   });
@@ -165,6 +167,156 @@ describe('computeOpportunityScore', () => {
   it('e deterministico: mesma entrada, mesmo resultado', () => {
     const input = baseInput({ website_status: 'NO_WEBSITE_DETECTED', rating: 4.6, review_count: 60 });
     expect(computeOpportunityScore(input)).toEqual(computeOpportunityScore(input));
+  });
+});
+
+/**
+ * Correcao pontual do score (potencial comercial, nao "Google Business bem
+ * configurado") — cenarios exigidos na revisao. `baseInput` continua com
+ * website_status: 'HAS_WEBSITE' e o resto nulo por padrao; cada caso liga so o
+ * que descreve.
+ */
+describe('computeOpportunityScore — potencial comercial (correcao pontual)', () => {
+  it('Caso 1: empresa OSM identificavel, sem site, sem Instagram, ativa — boa oportunidade', () => {
+    const result = computeOpportunityScore(
+      baseInput({
+        address: 'Rua das Palmeiras, 45',
+        phone: '(12) 3921-4400',
+        website_status: 'NO_WEBSITE_DETECTED',
+        business_status: 'OPERATIONAL',
+      }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+
+    // 30 (site) + 30 (lacuna digital) + 5 (telefone) + 5 (ativa) = 70.
+    expect(result.score).toBe(70);
+    expect(result.level).toBe('ALTA');
+    expect(result.breakdown.map((b) => b.code).sort()).toEqual(
+      ['BUSINESS_ACTIVE', 'DIGITAL_PRESENCE_GAP', 'NO_WEBSITE', 'PHONE_AVAILABLE'].sort(),
+    );
+  });
+
+  it('Caso 2: Google Business excelente (site + Instagram + rating + avaliacoes) nao vira score alto so por isso', () => {
+    const result = computeOpportunityScore(
+      baseInput({
+        website_status: 'HAS_WEBSITE',
+        rating: 4.9,
+        review_count: 340,
+        phone: '(12) 3921-5500',
+        instagram_url: 'https://instagram.com/empresa',
+        instagram_status: 'CONFIRMED',
+        business_status: 'OPERATIONAL',
+        address: 'Av. Central, 900',
+      }),
+      SOURCE_CAPABILITIES.GOOGLE_PLACES,
+    );
+
+    // 15 (rating) + 15 (avaliacoes) + 10 (insta) + 5 (insta confirmado) + 5 (telefone) + 5 (ativa) = 55.
+    // Sem NO_WEBSITE e sem DIGITAL_PRESENCE_GAP: a empresa tem site e Instagram.
+    expect(result.score).toBe(55);
+    expect(result.level).toBe('MEDIA');
+    expect(result.breakdown.some((b) => b.code === 'DIGITAL_PRESENCE_GAP')).toBe(false);
+  });
+
+  it('Caso 3: empresa OSM sem rating/reviews nao perde pontos por isso', () => {
+    const comRating = computeOpportunityScore(
+      baseInput({ website_status: 'NO_WEBSITE_DETECTED', address: 'Rua X, 1', rating: 4.9, review_count: 500 }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+    const semRating = computeOpportunityScore(
+      baseInput({ website_status: 'NO_WEBSITE_DETECTED', address: 'Rua X, 1', rating: null, review_count: null }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+
+    // OSM nao avalia rating/reviews: presentes ou ausentes, o resultado e o mesmo.
+    expect(comRating.score).toBe(semRating.score);
+    expect(semRating.breakdown.some((b) => b.code === 'HIGH_RATING')).toBe(false);
+    expect(semRating.breakdown.some((b) => b.code === 'REVIEW_COUNT')).toBe(false);
+  });
+
+  it('Caso 4: sem telefone continua sendo lead, mas o score reflete abordagem mais dificil', () => {
+    const comTelefone = computeOpportunityScore(
+      baseInput({
+        website_status: 'NO_WEBSITE_DETECTED',
+        address: 'Rua das Palmeiras, 45',
+        phone: '(12) 3921-4400',
+        business_status: 'OPERATIONAL',
+      }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+    const semTelefone = computeOpportunityScore(
+      baseInput({
+        website_status: 'NO_WEBSITE_DETECTED',
+        address: 'Rua das Palmeiras, 45',
+        phone: null,
+        business_status: 'OPERATIONAL',
+      }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+
+    expect(semTelefone.score).toBeLessThan(comTelefone.score);
+    expect(comTelefone.score - semTelefone.score).toBe(SCORE_WEIGHTS.PHONE_AVAILABLE);
+    // O lead continua existindo e pontuando — telefone ausente nao invalida o lead.
+    expect(semTelefone.score).toBeGreaterThan(0);
+  });
+
+  it('Caso 5: pouca presenca digital + telefone + endereco + nome + ativa — perfil-alvo principal', () => {
+    const result = computeOpportunityScore(
+      baseInput({
+        address: 'Rua Sete de Setembro, 210',
+        phone: '(12) 3922-1010',
+        website_status: 'NO_WEBSITE_DETECTED',
+        business_status: 'OPERATIONAL',
+      }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+
+    expect(result.level).not.toBe('BAIXA');
+    expect(result.score).toBeGreaterThanOrEqual(70);
+  });
+
+  it('Caso 6: UNKNOWN nunca vira FALSE — nem em NO_WEBSITE nem em DIGITAL_PRESENCE_GAP', () => {
+    const result = computeOpportunityScore(
+      baseInput({ website_status: 'UNKNOWN', address: 'Rua Y, 2' }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+
+    expect(result.breakdown.some((b) => b.code === 'NO_WEBSITE')).toBe(false);
+    expect(result.breakdown.some((b) => b.code === 'DIGITAL_PRESENCE_GAP')).toBe(false);
+  });
+
+  it('DIGITAL_PRESENCE_GAP exige endereco: nome sozinho nao basta para "identificavel"', () => {
+    const result = computeOpportunityScore(
+      baseInput({ website_status: 'NO_WEBSITE_DETECTED', address: null }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+    expect(result.breakdown.some((b) => b.code === 'DIGITAL_PRESENCE_GAP')).toBe(false);
+  });
+
+  it('DIGITAL_PRESENCE_GAP nao dispara quando ha Instagram encontrado (a lacuna precisa ser ampla)', () => {
+    const result = computeOpportunityScore(
+      baseInput({
+        website_status: 'NO_WEBSITE_DETECTED',
+        address: 'Rua Z, 3',
+        instagram_url: 'https://instagram.com/x',
+        instagram_status: 'PENDING',
+      }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+    expect(result.breakdown.some((b) => b.code === 'DIGITAL_PRESENCE_GAP')).toBe(false);
+  });
+
+  it('empresa ativa pontua para OSM quando a fonte informa business_status (nao depende mais de reviews)', () => {
+    const result = computeOpportunityScore(
+      baseInput({ business_status: 'OPERATIONAL' }),
+      SOURCE_CAPABILITIES.OPENSTREETMAP,
+    );
+    expect(result.breakdown.some((b) => b.code === 'BUSINESS_ACTIVE')).toBe(true);
+  });
+
+  it('empresa ativa nao pontua quando a fonte nunca informou business_status (nao inventa "ativa" do silencio)', () => {
+    const result = computeOpportunityScore(baseInput({ business_status: null }), SOURCE_CAPABILITIES.OPENSTREETMAP);
+    expect(result.breakdown.some((b) => b.code === 'BUSINESS_ACTIVE')).toBe(false);
   });
 });
 

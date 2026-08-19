@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 
 const WEIGHT_LABELS: Record<keyof typeof SCORE_WEIGHTS, string> = {
   NO_WEBSITE: 'Site nao identificado',
-  GOOGLE_PROFILE_COMPLETE: 'Google Business bem configurado',
+  DIGITAL_PRESENCE_GAP: 'Presenca digital insuficiente (sem site e sem Instagram)',
   HIGH_RATING: `Avaliacao ${HIGH_RATING_THRESHOLD} ou mais`,
   INSTAGRAM_FOUND: 'Instagram encontrado',
   INSTAGRAM_HIGH_CONFIDENCE: `Instagram com confianca ${INSTAGRAM_HIGH_CONFIDENCE_THRESHOLD}+`,

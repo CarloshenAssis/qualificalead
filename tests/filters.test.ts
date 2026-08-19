@@ -74,4 +74,20 @@ describe('applyCompanyFilters', () => {
     expect(applied({ city: 'Sao Jose' })).toContainEqual(['ilike', 'city', '%Sao Jose%']);
     expect(applied({ q: 'cantina' })).toContainEqual(['ilike', 'name', '%cantina%']);
   });
+
+  it('"Qualquer" (campo vazio) nao filtra nada — correcao pontual', () => {
+    // Um <select> em formulario GET envia o campo mesmo quando "Qualquer" esta
+    // selecionado (minRating=, nao ausencia da chave). Sem a correcao, z.coerce.number()
+    // fazia Number('') virar 0, e o filtro virava "rating >= 0" de verdade — o que
+    // excluia toda empresa com rating/review_count/opportunity_score nulos (ex.: todo
+    // lead do OpenStreetMap, que nao tem rating nem review_count).
+    const calls = applied({ minRating: '', minReviews: '', minScore: '' });
+    expect(calls.some((c) => c[0] === 'gte' && c[1] === 'rating')).toBe(false);
+    expect(calls.some((c) => c[0] === 'gte' && c[1] === 'review_count')).toBe(false);
+    expect(calls.some((c) => c[0] === 'gte' && c[1] === 'opportunity_score')).toBe(false);
+  });
+
+  it('valores reais de minRating/minReviews/minScore continuam funcionando', () => {
+    expect(applied({ minScore: '70' })).toContainEqual(['gte', 'opportunity_score', 70]);
+  });
 });

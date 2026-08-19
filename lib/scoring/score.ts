@@ -9,7 +9,6 @@ import type {
 } from '@/types/database';
 import type { SourceCapabilities } from '@/lib/prospecting/sources/types';
 import {
-  GOOGLE_PROFILE_MIN_FIELDS,
   GOOGLE_QUALITY,
   HIGH_RATING_THRESHOLD,
   INSTAGRAM_VERY_HIGH_CONFIDENCE_THRESHOLD,
@@ -53,10 +52,10 @@ export type SourceCoverage = {
   unavailableSignals: string[];
 };
 
-/** Os oito sinais que compoe o score comercial (SPEC 14). */
+/** Os oito sinais que compoe o score comercial (SPEC 14, corrigido — ver score.ts). */
 const SCORE_SIGNAL_CODES = [
   'NO_WEBSITE',
-  'GOOGLE_PROFILE_COMPLETE',
+  'DIGITAL_PRESENCE_GAP',
   'HIGH_RATING',
   'REVIEW_COUNT',
   'INSTAGRAM_FOUND',
@@ -68,15 +67,18 @@ type ScoreSignalCode = (typeof SCORE_SIGNAL_CODES)[number];
 
 /**
  * Instagram e sempre avaliavel: e um enriquecimento proprio do LeadHunter, independente
- * da fonte de descoberta. `BUSINESS_ACTIVE` depende de volume de avaliacoes como evidencia
- * de atividade — sem essa capacidade a pergunta simplesmente nao pode ser respondida.
+ * da fonte de descoberta. `DIGITAL_PRESENCE_GAP` depende do mesmo dado que `NO_WEBSITE`
+ * (a fonte precisa saber se ha site). `BUSINESS_ACTIVE` depende de a fonte informar
+ * `business_status` de verdade (nao de ter capacidade de avaliacoes) — o OSM, por
+ * exemplo, deriva isso das convencoes `disused:`/`was:` das proprias tags, sem depender
+ * de rating nem de volume de avaliacoes; por isso e sempre avaliavel aqui, e a condicao
+ * real (a fonte respondeu `business_status`, nao null) mora em `computeOpportunityScore`.
  */
 function isSignalEvaluable(code: ScoreSignalCode, capabilities: SourceCapabilities): boolean {
   switch (code) {
     case 'NO_WEBSITE':
+    case 'DIGITAL_PRESENCE_GAP':
       return capabilities.website;
-    case 'GOOGLE_PROFILE_COMPLETE':
-      return capabilities.businessProfile;
     case 'HIGH_RATING':
       return capabilities.rating;
     case 'REVIEW_COUNT':
@@ -87,7 +89,7 @@ function isSignalEvaluable(code: ScoreSignalCode, capabilities: SourceCapabiliti
     case 'PHONE_AVAILABLE':
       return capabilities.phone;
     case 'BUSINESS_ACTIVE':
-      return capabilities.reviewCount;
+      return true;
   }
 }
 
@@ -157,7 +159,7 @@ function googleProfileFilledFields(input: ScoreInput): number {
   return fields.filter((f) => f !== null && f !== undefined && f !== '').length;
 }
 
-/** O Google nao marcou o estabelecimento como fechado. */
+/** A fonte nao marcou o estabelecimento como fechado. */
 function isOperational(businessStatus: string | null): boolean {
   const status = businessStatus?.toUpperCase() ?? null;
   return status === null || status === 'OPERATIONAL';
@@ -175,6 +177,22 @@ function instagramCountsAsSolid(input: ScoreInput): boolean {
 /** Instagram rejeitado pelo usuario deixa de contar como sinal. */
 function hasUsableInstagram(input: ScoreInput): boolean {
   return Boolean(input.instagram_url) && input.instagram_status !== 'REJECTED';
+}
+
+/**
+ * Oportunidade de presenca digital (correcao pontual — ver SCORE_WEIGHTS.DIGITAL_PRESENCE_GAP).
+ *
+ * Nao e "quantos dados faltam": e um julgamento unico e deliberado — empresa
+ * identificavel (tem endereco) e com uma lacuna digital real (nem site nem Instagram
+ * foram identificados). So exige ausencia confirmada (`NO_WEBSITE_DETECTED`), nunca
+ * `UNKNOWN` — a mesma regra que ja vale para `NO_WEBSITE` (SPEC 1.1 §17).
+ */
+function hasDigitalPresenceGap(input: ScoreInput): boolean {
+  return (
+    input.website_status === 'NO_WEBSITE_DETECTED' &&
+    !hasUsableInstagram(input) &&
+    Boolean(input.address)
+  );
 }
 
 export function classifyScore(score: number): OpportunityLevel {
@@ -197,11 +215,11 @@ export function computeOpportunityScore(
     add('NO_WEBSITE', 'Site nao identificado', SCORE_WEIGHTS.NO_WEBSITE);
   }
 
-  if (evaluable('GOOGLE_PROFILE_COMPLETE') && googleProfileFilledFields(input) >= GOOGLE_PROFILE_MIN_FIELDS) {
+  if (evaluable('DIGITAL_PRESENCE_GAP') && hasDigitalPresenceGap(input)) {
     add(
-      'GOOGLE_PROFILE_COMPLETE',
-      'Google Business bem configurado',
-      SCORE_WEIGHTS.GOOGLE_PROFILE_COMPLETE,
+      'DIGITAL_PRESENCE_GAP',
+      'Presenca digital insuficiente — oportunidade de melhoria',
+      SCORE_WEIGHTS.DIGITAL_PRESENCE_GAP,
     );
   }
 
@@ -232,7 +250,8 @@ export function computeOpportunityScore(
     add('PHONE_AVAILABLE', 'Telefone disponivel', SCORE_WEIGHTS.PHONE_AVAILABLE);
   }
 
-  if (evaluable('BUSINESS_ACTIVE') && isOperational(input.business_status) && reviewCount > 0) {
+  // So pontua quando a fonte de fato informou o status (nunca infere "ativa" do silencio).
+  if (evaluable('BUSINESS_ACTIVE') && input.business_status !== null && isOperational(input.business_status)) {
     add('BUSINESS_ACTIVE', 'Empresa ativa', SCORE_WEIGHTS.BUSINESS_ACTIVE);
   }
 
@@ -288,7 +307,7 @@ export function computeNextAction(input: {
   if (!isOperational(input.businessStatus)) {
     return {
       action: 'DO_NOT_CONTACT',
-      reason: 'O Google indica que o estabelecimento nao esta em operacao.',
+      reason: 'A fonte indica que o estabelecimento nao esta em operacao.',
     };
   }
 

@@ -291,11 +291,13 @@ describe('runProspecting — score relativo a fonte e source_coverage (SPEC 1.2 
 
     const row = tables.companies[0];
     expect(row.google_business_quality).toBe('NOT_APPLICABLE');
-    // Este lead cai em LOW_PRIORITY porque o score (35) fica abaixo do limiar de baixa
-    // prioridade — nao porque quality e NOT_APPLICABLE. O isolamento exato desse efeito
-    // (mesma acao com HIGH e com NOT_APPLICABLE, mesmo score) esta em tests/qualification.test.ts.
-    expect(row.opportunity_score as number).toBeLessThan(40);
-    expect(row.next_action).toBe('LOW_PRIORITY');
+    // NO_WEBSITE (30) + PHONE_AVAILABLE (5) + BUSINESS_ACTIVE (5) = 40. Sem endereco
+    // (buildAddress/OSM nao recebeu addr:* nesta fixture), DIGITAL_PRESENCE_GAP nao entra.
+    // O next_action e RESEARCH_MORE (nem CONTACT_NOW nem LOW_PRIORITY) porque o score fica
+    // exatamente entre os dois limiares — nao porque quality e NOT_APPLICABLE. O isolamento
+    // exato desse efeito esta em tests/qualification.test.ts.
+    expect(row.opportunity_score).toBe(40);
+    expect(row.next_action).toBe('RESEARCH_MORE');
   });
 });
 
@@ -491,8 +493,11 @@ describe('buildCompanyRow — regressao do score do Google (SPEC 1.2 §35)', () 
     );
 
     expect(row.opportunity_score).toBe(expectedScore.score);
-    expect(row.opportunity_score).toBe(97);
-    expect(row.opportunity_level).toBe('EXCELENTE');
+    // 30 (site) + 15 (rating) + 12 (183 avaliacoes) + 10 (insta) + 5 (insta alta confianca)
+    // + 5 (telefone) + 5 (ativa) = 82. Sem DIGITAL_PRESENCE_GAP: ha Instagram encontrado
+    // (correcao pontual do score — GOOGLE_PROFILE_COMPLETE foi removido).
+    expect(row.opportunity_score).toBe(82);
+    expect(row.opportunity_level).toBe('ALTA');
     expect(row.google_place_id).toBe('ChIJ123');
   });
 });

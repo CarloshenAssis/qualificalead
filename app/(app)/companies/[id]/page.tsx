@@ -1,8 +1,8 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, ExternalLink, MapPin, MessageCircle, Star } from 'lucide-react';
+import { ExternalLink, MapPin, MessageCircle, Star } from 'lucide-react';
 import { Badge, Card, ExternalLinkButton, SectionTitle } from '@/components/ui';
 import { ScoreBreakdown } from '@/components/ui/ScoreBadge';
+import { BackToCompaniesLink } from '@/components/companies/BackToCompaniesLink';
 import { InstagramReview } from '@/components/companies/InstagramReview';
 import { LeadPanel } from '@/components/leads/LeadPanel';
 import { BriefingPanel } from '@/components/briefing/BriefingPanel';
@@ -83,10 +83,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link href="/companies" className="inline-flex items-center gap-1 text-sm text-ink-mute">
-          <ArrowLeft className="size-4" aria-hidden />
-          Voltar para empresas
-        </Link>
+        <BackToCompaniesLink />
         <h1 className="mt-2 text-xl font-semibold text-ink">{company.name}</h1>
         <p className="text-sm text-ink-mute">
           {company.category ?? 'Categoria nao informada'}
