@@ -8,6 +8,15 @@ import {
 
 /** Validacao de toda entrada vinda do cliente (SPEC 33/47). */
 
+/**
+ * `<select>` com opcao "Qualquer" manda `campo=` (string vazia) num form GET, e
+ * `z.coerce.number()` converte `''` para `0` em vez de falhar — o que faz o filtro
+ * "sem filtro" virar `gte(coluna, 0)` e esconder linhas com coluna nula. Tratamos
+ * string vazia como "nao informado" antes de coagir para numero.
+ */
+const optionalCoercedNumber = <Schema extends z.ZodType<number>>(schema: Schema) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+
 /** Opcoes de limite da FASE 7 (SPEC 1.2 §24) — nunca um valor arbitrario fora desta lista. */
 export const PROSPECTING_LIMITS = [25, 50, 100, 250, 500] as const;
 export type ProspectingLimit = (typeof PROSPECTING_LIMITS)[number];
@@ -37,12 +46,12 @@ export type ProspectingSearchInput = z.infer<typeof prospectingSearchSchema>;
 
 export const companyFiltersSchema = z.object({
   website: z.enum(['all', 'without', 'with']).default('all'),
-  minRating: z.coerce.number().min(0).max(5).optional(),
-  minReviews: z.coerce.number().int().min(0).optional(),
+  minRating: optionalCoercedNumber(z.coerce.number().min(0).max(5)),
+  minReviews: optionalCoercedNumber(z.coerce.number().int().min(0)),
   instagram: z.enum(['all', 'found', 'not_found', 'high_confidence', 'pending']).default('all'),
   phone: z.enum(['all', 'available', 'unavailable']).default('all'),
   level: z.enum(['all', 'BAIXA', 'MEDIA', 'ALTA', 'EXCELENTE']).default('all'),
-  minScore: z.coerce.number().int().min(0).max(100).optional(),
+  minScore: optionalCoercedNumber(z.coerce.number().int().min(0).max(100)),
   /** Fonte de descoberta (SPEC 1.2 FASE 7 §5). `MULTI_SOURCE` = encontrada em mais de uma fonte. */
   source: z
     .enum(['all', 'OPENSTREETMAP', 'GOOGLE_PLACES', 'FOURSQUARE', 'LEGACY', 'MULTI_SOURCE'])

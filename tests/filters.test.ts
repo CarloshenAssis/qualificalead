@@ -74,4 +74,17 @@ describe('applyCompanyFilters', () => {
     expect(applied({ city: 'Sao Jose' })).toContainEqual(['ilike', 'city', '%Sao Jose%']);
     expect(applied({ q: 'cantina' })).toContainEqual(['ilike', 'name', '%cantina%']);
   });
+
+  it('trata "Qualquer" (string vazia enviada pelo form GET) como nenhum filtro numerico', () => {
+    // Um <select> com a opcao "Qualquer" (value="") ainda manda `campo=` na query
+    // string em forms GET. Sem tratamento, z.coerce.number() converte '' para 0 e
+    // isso vira `gte(coluna, 0)`, escondendo linhas com coluna nula.
+    const calls = applied({ minRating: '', minReviews: '', minScore: '' });
+    expect(calls).toEqual([]);
+
+    const parsed = companyFiltersSchema.parse({ minRating: '', minReviews: '', minScore: '' });
+    expect(parsed.minRating).toBeUndefined();
+    expect(parsed.minReviews).toBeUndefined();
+    expect(parsed.minScore).toBeUndefined();
+  });
 });
