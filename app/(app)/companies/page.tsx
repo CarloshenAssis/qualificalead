@@ -21,6 +21,25 @@ function buildQueryString(params: SearchParams, overrides: Record<string, string
   return search.toString();
 }
 
+/**
+ * Paginas numeradas clicaveis (nao so Anterior/Proxima): sempre mostra a primeira,
+ * a ultima e uma janela ao redor da pagina atual, com "..." nos buracos — evita uma
+ * lista enorme quando ha dezenas de paginas.
+ */
+export function buildPageList(current: number, total: number): (number | 'ellipsis')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+  const pages = new Set<number>([1, total, current - 1, current, current + 1]);
+  const sorted = [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+
+  const result: (number | 'ellipsis')[] = [];
+  for (let i = 0; i < sorted.length; i += 1) {
+    if (i > 0 && sorted[i] - sorted[i - 1] > 1) result.push('ellipsis');
+    result.push(sorted[i]);
+  }
+  return result;
+}
+
 export default async function CompaniesPage({
   searchParams,
 }: {
@@ -102,28 +121,48 @@ export default async function CompaniesPage({
       </ul>
 
       {totalPages > 1 ? (
-        <nav aria-label="Paginacao" className="flex items-center justify-between gap-3">
-          <LinkButton
-            href={`/companies?${buildQueryString(params, { page: String(Math.max(1, filters.page - 1)) })}`}
-            variant="secondary"
-            aria-disabled={filters.page <= 1}
-            className={filters.page <= 1 ? 'pointer-events-none opacity-50' : ''}
-          >
-            Anterior
-          </LinkButton>
-
-          <span className="text-sm text-ink-mute">
+        <nav aria-label="Paginacao" className="flex flex-col items-center gap-2">
+          <p className="text-sm text-ink-mute">
             Pagina {filters.page} de {totalPages}
-          </span>
+          </p>
 
-          <LinkButton
-            href={`/companies?${buildQueryString(params, { page: String(Math.min(totalPages, filters.page + 1)) })}`}
-            variant="secondary"
-            aria-disabled={filters.page >= totalPages}
-            className={filters.page >= totalPages ? 'pointer-events-none opacity-50' : ''}
-          >
-            Proxima
-          </LinkButton>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <LinkButton
+              href={`/companies?${buildQueryString(params, { page: String(Math.max(1, filters.page - 1)) })}`}
+              variant="secondary"
+              aria-disabled={filters.page <= 1}
+              className={filters.page <= 1 ? 'pointer-events-none opacity-50' : ''}
+            >
+              Anterior
+            </LinkButton>
+
+            {buildPageList(filters.page, totalPages).map((item, index) =>
+              item === 'ellipsis' ? (
+                <span key={`ellipsis-${index}`} className="px-1 text-sm text-ink-mute">
+                  …
+                </span>
+              ) : (
+                <LinkButton
+                  key={item}
+                  href={`/companies?${buildQueryString(params, { page: String(item) })}`}
+                  variant={item === filters.page ? 'primary' : 'ghost'}
+                  aria-current={item === filters.page ? 'page' : undefined}
+                  className="min-w-11 justify-center px-2"
+                >
+                  {item}
+                </LinkButton>
+              ),
+            )}
+
+            <LinkButton
+              href={`/companies?${buildQueryString(params, { page: String(Math.min(totalPages, filters.page + 1)) })}`}
+              variant="secondary"
+              aria-disabled={filters.page >= totalPages}
+              className={filters.page >= totalPages ? 'pointer-events-none opacity-50' : ''}
+            >
+              Proxima
+            </LinkButton>
+          </div>
         </nav>
       ) : null}
     </div>

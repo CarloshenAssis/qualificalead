@@ -75,16 +75,19 @@ describe('applyCompanyFilters', () => {
     expect(applied({ q: 'cantina' })).toContainEqual(['ilike', 'name', '%cantina%']);
   });
 
-  it('trata "Qualquer" (string vazia enviada pelo form GET) como nenhum filtro numerico', () => {
-    // Um <select> com a opcao "Qualquer" (value="") ainda manda `campo=` na query
-    // string em forms GET. Sem tratamento, z.coerce.number() converte '' para 0 e
-    // isso vira `gte(coluna, 0)`, escondendo linhas com coluna nula.
+  it('"Qualquer" (campo vazio) nao filtra nada — correcao pontual', () => {
+    // Um <select> em formulario GET envia o campo mesmo quando "Qualquer" esta
+    // selecionado (minRating=, nao ausencia da chave). Sem a correcao, z.coerce.number()
+    // fazia Number('') virar 0, e o filtro virava "rating >= 0" de verdade — o que
+    // excluia toda empresa com rating/review_count/opportunity_score nulos (ex.: todo
+    // lead do OpenStreetMap, que nao tem rating nem review_count).
     const calls = applied({ minRating: '', minReviews: '', minScore: '' });
-    expect(calls).toEqual([]);
+    expect(calls.some((c) => c[0] === 'gte' && c[1] === 'rating')).toBe(false);
+    expect(calls.some((c) => c[0] === 'gte' && c[1] === 'review_count')).toBe(false);
+    expect(calls.some((c) => c[0] === 'gte' && c[1] === 'opportunity_score')).toBe(false);
+  });
 
-    const parsed = companyFiltersSchema.parse({ minRating: '', minReviews: '', minScore: '' });
-    expect(parsed.minRating).toBeUndefined();
-    expect(parsed.minReviews).toBeUndefined();
-    expect(parsed.minScore).toBeUndefined();
+  it('valores reais de minRating/minReviews/minScore continuam funcionando', () => {
+    expect(applied({ minScore: '70' })).toContainEqual(['gte', 'opportunity_score', 70]);
   });
 });

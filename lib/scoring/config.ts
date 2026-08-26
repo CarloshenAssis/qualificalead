@@ -7,7 +7,13 @@ import type { OpportunityLevel } from '@/types/database';
 
 export const SCORE_WEIGHTS = {
   NO_WEBSITE: 30,
-  GOOGLE_PROFILE_COMPLETE: 15,
+  /**
+   * Oportunidade de presenca digital (correcao pontual, ver score.ts): substitui
+   * "Google Business bem configurado" — um perfil rico no Google nao e o que este
+   * produto vende. O que vale e o oposto: empresa identificavel, abordavel, com uma
+   * lacuna real de presenca digital (sem site E sem Instagram identificados).
+   */
+  DIGITAL_PRESENCE_GAP: 30,
   HIGH_RATING: 15,
   INSTAGRAM_FOUND: 10,
   INSTAGRAM_HIGH_CONFIDENCE: 5,
@@ -38,9 +44,6 @@ export const INSTAGRAM_HIGH_CONFIDENCE_THRESHOLD = 70;
  * Abaixo disso o bonus so vale se o usuario tiver confirmado o perfil.
  */
 export const INSTAGRAM_VERY_HIGH_CONFIDENCE_THRESHOLD = 90;
-
-/** Quantos campos do Google precisam existir para o perfil contar como completo. */
-export const GOOGLE_PROFILE_MIN_FIELDS = 4;
 
 /** Faixas de classificacao (SPEC 15). */
 export const OPPORTUNITY_LEVEL_RANGES: ReadonlyArray<{
