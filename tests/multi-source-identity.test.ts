@@ -55,6 +55,7 @@ function buildRowFor(business: NormalizedBusiness) {
     phone: business.phone,
     phone_international: business.phoneInternational,
     whatsapp: business.phone,
+    email: business.email,
     website: business.website,
     website_status: business.websiteStatus,
     website_checked_at: new Date().toISOString(),

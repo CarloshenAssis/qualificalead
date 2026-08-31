@@ -1,4 +1,4 @@
-import { ExternalLink, AtSign, MapPin, MessageCircle, Star } from 'lucide-react';
+import { ExternalLink, AtSign, Mail, MapPin, MessageCircle, Star } from 'lucide-react';
 import { Badge, Card, ExternalLinkButton, LinkButton } from '@/components/ui';
 import { ScoreBadge } from '@/components/ui/ScoreBadge';
 import { AddToPipelineButton } from './AddToPipelineButton';
@@ -56,6 +56,8 @@ export function CompanyCard({ company }: { company: CompanyWithLead }) {
           <Badge tone="neutral">Sem telefone</Badge>
         )}
 
+        {company.email ? <Badge tone="neutral">{company.email}</Badge> : null}
+
         {lead ? <Badge tone="brand">{lead.status}</Badge> : null}
 
         <Badge tone="neutral" title={sourceInfo.quality ? SOURCE_QUALITY_LABELS[sourceInfo.quality] : undefined}>
@@ -74,6 +76,13 @@ export function CompanyCard({ company }: { company: CompanyWithLead }) {
           <ExternalLinkButton href={wa} variant="positive" aria-label={`Abrir WhatsApp de ${company.name}`}>
             <MessageCircle className="size-4" aria-hidden />
             WhatsApp
+          </ExternalLinkButton>
+        ) : null}
+
+        {company.email ? (
+          <ExternalLinkButton href={`mailto:${company.email}`} aria-label={`Enviar email para ${company.name}`}>
+            <Mail className="size-4" aria-hidden />
+            Email
           </ExternalLinkButton>
         ) : null}
 

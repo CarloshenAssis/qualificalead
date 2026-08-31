@@ -50,6 +50,9 @@ export function applyCompanyFilters<T>(query: T, filters: CompanyFilters): T {
   if (filters.phone === 'available') q = q.not('phone', 'is', null);
   if (filters.phone === 'unavailable') q = q.is('phone', null);
 
+  if (filters.email === 'available') q = q.not('email', 'is', null);
+  if (filters.email === 'unavailable') q = q.is('email', null);
+
   if (filters.level !== 'all') q = q.eq('opportunity_level', filters.level);
   if (filters.minScore !== undefined) q = q.gte('opportunity_score', filters.minScore);
   if (filters.city) q = q.ilike('city', `%${filters.city}%`);

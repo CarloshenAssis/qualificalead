@@ -66,6 +66,14 @@ export function CompanyFilters({ filters }: { filters: Filters }) {
             </Select>
           </Field>
 
+          <Field label="Email" htmlFor="email">
+            <Select id="email" name="email" defaultValue={filters.email}>
+              <option value="all">Todos</option>
+              <option value="available">Disponivel</option>
+              <option value="unavailable">Indisponivel</option>
+            </Select>
+          </Field>
+
           <Field label="Score minimo" htmlFor="minScore">
             <Select id="minScore" name="minScore" defaultValue={filters.minScore?.toString() ?? ''}>
               <option value="">Qualquer</option>

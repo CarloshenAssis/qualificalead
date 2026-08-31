@@ -53,6 +53,7 @@ export const companyFiltersSchema = z.object({
   minReviews: optionalNumberFilter(z.coerce.number().int().min(0)),
   instagram: z.enum(['all', 'found', 'not_found', 'high_confidence', 'pending']).default('all'),
   phone: z.enum(['all', 'available', 'unavailable']).default('all'),
+  email: z.enum(['all', 'available', 'unavailable']).default('all'),
   level: z.enum(['all', 'BAIXA', 'MEDIA', 'ALTA', 'EXCELENTE']).default('all'),
   minScore: optionalNumberFilter(z.coerce.number().int().min(0).max(100)),
   /** Fonte de descoberta (SPEC 1.2 FASE 7 §5). `MULTI_SOURCE` = encontrada em mais de uma fonte. */

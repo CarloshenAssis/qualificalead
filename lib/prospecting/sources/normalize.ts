@@ -28,6 +28,8 @@ export type NormalizedBusiness = {
   description: string | null;
   phone: string | null;
   phoneInternational: string | null;
+  /** Hoje so o OpenStreetMap fornece email; para as demais fontes fica sempre `null`. */
+  email: string | null;
   website: string | null;
   websiteStatus: WebsiteStatus;
   /** Endereco publico do registro na fonte original (ficha do Google, pagina do OSM etc.). */
@@ -61,6 +63,7 @@ export function normalizeRawBusiness(business: RawBusiness): NormalizedBusiness 
     description: business.description?.trim() || null,
     phone: business.phone?.trim() || null,
     phoneInternational: business.phoneInternational?.trim() || null,
+    email: business.email?.trim().toLowerCase() || null,
     website,
     // Ausencia de website aqui significa apenas "nao informado pela fonte" (SPEC 9).
     websiteStatus: website ? 'HAS_WEBSITE' : 'NO_WEBSITE_DETECTED',

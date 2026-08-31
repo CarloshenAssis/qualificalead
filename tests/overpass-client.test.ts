@@ -140,6 +140,7 @@ describe('osmElementToRawBusiness', () => {
         'addr:state': 'SP',
         phone: '+55 12 3921-0000',
         website: 'https://padaria.com.br',
+        email: 'contato@padaria.com.br',
         opening_hours: 'Mo-Sa 07:00-19:00',
       },
     });
@@ -149,6 +150,7 @@ describe('osmElementToRawBusiness', () => {
     expect(business?.sourceId).toBe('node/123');
     expect(business?.address).toBe('Rua das Flores, 100 - Centro - Sao Jose dos Campos');
     expect(business?.phone).toBe('+55 12 3921-0000');
+    expect(business?.email).toBe('contato@padaria.com.br');
     expect(business?.categories).toEqual(['bakery']);
     expect(business?.sourceUrl).toBe('https://www.openstreetmap.org/node/123');
     // OSM nao tem reputacao: esses campos jamais podem aparecer preenchidos.
@@ -193,8 +195,19 @@ describe('osmElementToRawBusiness', () => {
 
     expect(business?.phone).toBeUndefined();
     expect(business?.website).toBeUndefined();
+    expect(business?.email).toBeUndefined();
     expect(business?.address).toBeUndefined();
     expect(business?.openingHours).toBeUndefined();
+  });
+
+  it('usa `contact:email` quando nao ha tag `email` direta', () => {
+    const business = osmElementToRawBusiness({
+      type: 'node',
+      id: 8,
+      tags: { name: 'Oficina do Joao', shop: 'car_repair', 'contact:email': 'joao@oficina.com' },
+    });
+
+    expect(business?.email).toBe('joao@oficina.com');
   });
 });
 

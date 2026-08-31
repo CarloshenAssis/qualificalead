@@ -75,6 +75,12 @@ describe('applyCompanyFilters', () => {
     expect(applied({ q: 'cantina' })).toContainEqual(['ilike', 'name', '%cantina%']);
   });
 
+  it('filtra por email disponivel/indisponivel', () => {
+    expect(applied({ email: 'available' })).toContainEqual(['not', 'email', 'is:null']);
+    expect(applied({ email: 'unavailable' })).toContainEqual(['is', 'email', null]);
+    expect(applied({ email: 'all' })).toEqual([]);
+  });
+
   it('"Qualquer" (campo vazio) nao filtra nada — correcao pontual', () => {
     // Um <select> em formulario GET envia o campo mesmo quando "Qualquer" esta
     // selecionado (minRating=, nao ausencia da chave). Sem a correcao, z.coerce.number()

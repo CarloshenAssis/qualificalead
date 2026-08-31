@@ -134,6 +134,18 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
               value={wa ? <span className="text-positive">Disponivel</span> : 'Nao encontrado'}
             />
             <InfoRow
+              label="Email"
+              value={
+                company.email ? (
+                  <a href={`mailto:${company.email}`} className="text-brand-700 underline">
+                    {company.email}
+                  </a>
+                ) : (
+                  'Nao encontrado'
+                )
+              }
+            />
+            <InfoRow
               label="Horarios"
               value={
                 company.opening_hours?.length ? (

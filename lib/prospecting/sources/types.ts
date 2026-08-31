@@ -53,6 +53,8 @@ export type RawBusiness = {
   /** Telefone em formato internacional, quando a fonte distingue os dois formatos. */
   phoneInternational?: string;
   website?: string;
+  /** Hoje so o OpenStreetMap fornece email (tags `email`/`contact:email`); Google Places nao expoe esse campo. */
+  email?: string;
 
   categories?: string[];
 
@@ -205,6 +207,7 @@ type QualityAssessable = {
   address?: string | null;
   phone?: string | null;
   website?: string | null;
+  email?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 };
@@ -213,7 +216,7 @@ export function assessSourceQuality(business: QualityAssessable): SourceQuality 
   const hasLocation =
     typeof business.latitude === 'number' && typeof business.longitude === 'number';
   const hasAddress = Boolean(business.address);
-  const hasContact = Boolean(business.phone || business.website);
+  const hasContact = Boolean(business.phone || business.website || business.email);
 
   if (business.name && hasAddress && hasLocation && hasContact) return 'HIGH';
   if (business.name && hasLocation && (hasAddress || hasContact)) return 'MEDIUM';

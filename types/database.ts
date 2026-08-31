@@ -112,6 +112,7 @@ export type Company = {
   phone: string | null;
   phone_international: string | null;
   whatsapp: string | null;
+  email: string | null;
   website: string | null;
   website_status: WebsiteStatus;
   google_maps_url: string | null;

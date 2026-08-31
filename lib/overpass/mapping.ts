@@ -93,6 +93,7 @@ export function osmElementToRawBusiness(element: OverpassElement): RawBusiness |
     longitude: typeof longitude === 'number' ? longitude : undefined,
     phone: firstTag(tags, ['phone', 'contact:phone', 'contact:mobile', 'mobile']),
     website: firstTag(tags, ['website', 'contact:website', 'url']),
+    email: firstTag(tags, ['email', 'contact:email']),
     categories: categories(tags),
     // OSM nao tem rating nem reviewCount: permanecem ausentes por natureza da fonte.
     openingHours: openingHours(tags),

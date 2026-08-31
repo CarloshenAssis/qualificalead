@@ -16,6 +16,7 @@ function company(overrides: Partial<CompanyWithLead> = {}): CompanyWithLead {
     phone: '(12) 99999-0000',
     phone_international: '+55 12 99999-0000',
     whatsapp: '5512999990000',
+    email: null,
     website: null,
     website_status: 'NO_WEBSITE_DETECTED',
     google_maps_url: null,
@@ -70,6 +71,11 @@ describe('buildCsv', () => {
 
   it('inclui o link de WhatsApp normalizado', () => {
     expect(buildCsv([company()])).toContain('https://wa.me/5512999990000');
+  });
+
+  it('inclui o email quando disponivel', () => {
+    expect(EXPORT_HEADERS).toContain('Email');
+    expect(buildCsv([company({ email: 'contato@bar.com.br' })])).toContain('contato@bar.com.br');
   });
 
   it('inclui as colunas de fonte (SPEC 1.2 FASE 7 §7)', () => {

@@ -440,6 +440,7 @@ describe('buildCompanyRow — regressao do score do Google (SPEC 1.2 §35)', () 
       description: 'Restaurante italiano',
       phone: '(12) 99999-0000',
       phoneInternational: '+55 12 99999-0000',
+      email: null,
       website: null,
       websiteStatus: 'NO_WEBSITE_DETECTED' as const,
       sourceUrl: 'https://maps.google.com/?cid=1',

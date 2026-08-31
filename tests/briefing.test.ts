@@ -15,6 +15,7 @@ function company(overrides: Partial<Company> = {}): Company {
     phone: '(12) 3921-0000',
     phone_international: '+55 12 3921-0000',
     whatsapp: '551239210000',
+    email: null,
     website: null,
     website_status: 'NO_WEBSITE_DETECTED',
     google_maps_url: 'https://maps.google.com/?cid=1',
