@@ -6,13 +6,29 @@
  * formato nativo para esse formato intermediario.
  */
 
-export const SOURCE_IDS = ['OPENSTREETMAP', 'GOOGLE_PLACES', 'FOURSQUARE', 'LEGACY'] as const;
+export const SOURCE_IDS = [
+  'OPENSTREETMAP',
+  'GOOGLE_PLACES',
+  'FOURSQUARE',
+  // SPEC 2.0 §8.1: o Apify entra como fonte externa, nunca como cerebro do sistema.
+  // Sao duas entradas distintas porque sao dois caminhos diferentes: um Actor que o
+  // LeadHunter dispara e acompanha, e um dataset ja existente que o usuario importa.
+  'APIFY_GOOGLE_MAPS',
+  'APIFY_DATASET',
+  'CSV_IMPORT',
+  'MANUAL',
+  'LEGACY',
+] as const;
 export type SourceId = (typeof SOURCE_IDS)[number];
 
 export const SOURCE_LABELS: Record<SourceId, string> = {
   OPENSTREETMAP: 'OpenStreetMap',
   GOOGLE_PLACES: 'Google Places',
   FOURSQUARE: 'Foursquare',
+  APIFY_GOOGLE_MAPS: 'Apify (Google Maps)',
+  APIFY_DATASET: 'Apify (dataset importado)',
+  CSV_IMPORT: 'Importacao CSV/XLSX',
+  MANUAL: 'Cadastro manual',
   // Empresas anteriores a 1.2, cuja origem nao foi registrada (SPEC 1.2 §76).
   LEGACY: 'Origem nao registrada',
 };
@@ -148,6 +164,45 @@ export const SOURCE_CAPABILITIES: Record<SourceId, SourceCapabilities> = {
   FOURSQUARE: {
     rating: true,
     reviewCount: true,
+    businessProfile: false,
+    phone: true,
+    website: true,
+  },
+  /**
+   * O Apify coleta a ficha publica do Google Maps, entao as capacidades sao as do
+   * Google — e nao as do OSM. Vale a ressalva da SPEC 2.0 §37, item 2: o que o Apify
+   * observa continua sendo dado coletado, nunca prova de ausencia.
+   */
+  APIFY_GOOGLE_MAPS: {
+    rating: true,
+    reviewCount: true,
+    businessProfile: true,
+    phone: true,
+    website: true,
+  },
+  /**
+   * Dataset generico: o LeadHunter nao sabe o que o Actor de origem coletava, entao
+   * nao pode assumir que a ausencia de rating significa alguma coisa. So os campos
+   * universais de contato ficam ligados.
+   */
+  APIFY_DATASET: {
+    rating: false,
+    reviewCount: false,
+    businessProfile: false,
+    phone: true,
+    website: true,
+  },
+  // Uma planilha traz o que o usuario digitou: contato sim, reputacao nao.
+  CSV_IMPORT: {
+    rating: false,
+    reviewCount: false,
+    businessProfile: false,
+    phone: true,
+    website: true,
+  },
+  MANUAL: {
+    rating: false,
+    reviewCount: false,
     businessProfile: false,
     phone: true,
     website: true,

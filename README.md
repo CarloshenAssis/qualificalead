@@ -43,14 +43,21 @@ para `/setup`, que explica o que falta configurar.
 
 1. Crie um projeto em [supabase.com](https://supabase.com).
 2. Em **Project Settings → API**, copie `Project URL` e a chave `anon`.
-3. Abra o **SQL Editor** e execute, **nesta ordem**:
-   - [`database/migrations/0001_init.sql`](./database/migrations/0001_init.sql) — enums, tabelas,
-     indices de deduplicacao, triggers de `updated_at`, criacao automatica de `profiles` e as
-     **policies de RLS**;
-   - [`database/migrations/0002_hardening.sql`](./database/migrations/0002_hardening.sql) —
-     proveniencia dos dados enriquecidos, estado `UNKNOWN` de website, qualidade do perfil Google,
-     acao recomendada, metricas por pesquisa e **integridade reforcada pelo banco** (um lead nunca
-     pode apontar para a empresa de outro usuario).
+3. Abra o **SQL Editor** e execute os arquivos de
+   [`database/migrations/`](./database/migrations/) **em ordem numerica**, do `0001` ao `0007`:
+   - `0001_init.sql` — enums, tabelas, indices de deduplicacao, triggers de `updated_at`,
+     criacao automatica de `profiles` e as **policies de RLS**;
+   - `0002_hardening.sql` — proveniencia dos dados enriquecidos, estado `UNKNOWN` de website,
+     qualidade do perfil Google, acao recomendada, metricas por pesquisa e **integridade
+     reforcada pelo banco** (um lead nunca pode apontar para a empresa de outro usuario);
+   - `0003_google_business_quality.sql` — qualidade do perfil comercial como dado proprio;
+   - `0004_multi_source.sql` — identidade neutra por fonte, deduplicacao cross-source e
+     cache persistente de descoberta (SPEC 1.2);
+   - `0005_company_source_summary.sql` — resumo das fontes por empresa;
+   - `0006_company_email.sql` — e-mail como contato adicional;
+   - `0007_spec2_commercial_core.sql` — **SPEC 2.0**: campanhas, contatos, evidencia, gaps,
+     ofertas, qualificacao versionada, e-mail, CRM, jobs e auditoria. Nao remove nem renomeia
+     nada: empresas e leads existentes continuam funcionando sem nenhuma acao.
 4. Em **Authentication → Providers**, mantenha o provedor de e-mail/senha habilitado.
    Se a confirmacao de e-mail estiver ativa, o cadastro pede confirmacao antes do primeiro login —
    e o SMTP embutido do Supabase limita os envios a poucos por hora. Para uso serio, configure um
@@ -115,6 +122,9 @@ npm test           # Vitest
 npm run verify:google     # busca real na Places API e qualificacao do resultado
 npm run verify:supabase   # auth + persistencia + deduplicacao + RLS pela API real
 npm run verify:ui         # fluxo completo pela interface (precisa do app rodando)
+
+# Migracoes num PostgreSQL local, em banco vazio e em banco ja atualizado (SPEC 2.0 §32.4)
+PGHOST=... PGPORT=... PGUSER=... ./scripts/verify-migrations.sh
 ```
 
 Com o app rodando e autenticado, a pagina **`/health`** faz o mesmo diagnostico pela interface:
@@ -237,11 +247,20 @@ lib/
   instagram/      descoberta com nivel de confianca
   scoring/        pesos e motor de score
   briefing/       briefing e prompt do Lovable
-  whatsapp/       normalizacao de telefone e wa.me
+  whatsapp/       normalizacao de telefone, wa.me e acao manual (SPEC 2.0 §22)
   export/         CSV e XLSX
   prospecting/    orquestracao da busca
   supabase/       clientes de browser, servidor e sessao
-database/         migracao SQL com RLS
+  campaigns/      maquina de estados e orcamento da campanha (SPEC 2.0 §7/§8.5)
+  gaps/           catalogo de gaps observaveis (SPEC 2.0 §12)
+  offers/         catalogo de ofertas e recomendacao por gap (SPEC 2.0 §13)
+  qualification/  score multidimensional versionado (SPEC 2.0 §14)
+  contacts/       prioridade e agendabilidade de contato (SPEC 2.0 §10)
+  email/          portao de envio, eventos e supressao (SPEC 2.0 §17/§19/§29.2)
+  inbox/          classificacao de respostas (SPEC 2.0 §20)
+  crm/            pipeline comercial (SPEC 2.0 §21)
+  jobs/           retry, dead-letter e lock (SPEC 2.0 §24)
+database/         migracoes SQL com RLS + harness de verificacao local
 tests/            testes unitarios
 ```
 
@@ -257,3 +276,9 @@ tests/            testes unitarios
 - A edicao dos pesos do score pela interface ainda nao existe: hoje eles sao ajustados em
   `lib/scoring/config.ts`. A tela de configuracoes ja mostra os valores vigentes.
 - Nao ha cobranca, planos ou limites de uso — a V1 nao implementa billing, conforme a especificacao.
+- Da SPEC 2.0, o nucleo de dominio e o schema estao implementados; as integracoes externas
+  (Apify, provedor de e-mail, IA, auditor de sites) e as telas novas ainda nao. O que ficou de
+  fora esta listado em [`SPEC-2.0.md`](./SPEC-2.0.md) §3.
+- **WhatsApp e manual por decisao de produto** (SPEC 2.0 §22/§37): o sistema formata o numero e
+  abre a conversa por `wa.me`; quem envia e voce. Nao ha envio, agendamento, disparo em lote nem
+  webhook de WhatsApp, e nenhuma credencial de WhatsApp e necessaria.
