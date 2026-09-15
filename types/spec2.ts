@@ -286,28 +286,43 @@ export type QualificationReason = {
   points?: number;
 };
 
-export type QualificationResult = {
+type QualificationResultBase = {
   id: string;
   user_id: string;
   company_id: string;
   campaign_id: string | null;
   /** SPEC 2.0 §14.6: mudanca de peso nunca reescreve historico em silencio. */
-  score_version: number;
   opportunity_score: number;
-  opportunity_level: OpportunityLevelV2;
   need_score: number;
   commercial_fit_score: number;
   capacity_score: number;
   contactability_score: number;
   timing_score: number;
   data_confidence: number;
-  primary_gap: GapType | null;
-  recommended_offer: OfferType | null;
-  recommended_action: RecommendedAction;
-  reasons: QualificationReason[];
-  evidence_ids: string[];
   created_at: string;
 };
+
+export type QualificationResultV1 = QualificationResultBase & {
+  score_version: 1;
+  opportunity_level: 'BAIXA' | 'MEDIA' | 'ALTA' | 'EXCELENTE';
+  recommended_action: 'CONTACT_NOW' | 'RESEARCH_MORE' | 'LOW_PRIORITY' | 'ALREADY_CONTACTED' | 'DO_NOT_CONTACT';
+  reasons: unknown[];
+  primary_gap: null;
+  recommended_offer: null;
+  evidence_ids: string[];
+};
+
+export type QualificationResultV2 = QualificationResultBase & {
+  score_version: 2;
+  opportunity_level: OpportunityLevelV2;
+  recommended_action: RecommendedAction;
+  reasons: QualificationReason[];
+  primary_gap: GapType | null;
+  recommended_offer: OfferType | null;
+  evidence_ids: string[];
+};
+
+export type QualificationResult = QualificationResultV1 | QualificationResultV2;
 
 // --- Pipeline e CRM (SPEC 2.0 §21) ------------------------------------------
 

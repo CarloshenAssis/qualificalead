@@ -125,15 +125,15 @@ export function emailEventEffects(
  * ordem (§19.2). Um estado so avanca: um `DELIVERED` atrasado que chega depois de
  * um `REPLIED` nao rebaixa a mensagem de volta para "entregue".
  */
-const STATUS_RANK: Record<MessageStatus, number> = {
-  SCHEDULED: 0,
-  QUEUED: 1,
-  SENT: 2,
-  DELIVERED: 3,
-  CANCELLED: 4,
-  FAILED: 4,
-  BOUNCED: 5,
-  REPLIED: 6,
+const VALID_TRANSITIONS: Record<MessageStatus, ReadonlySet<MessageStatus>> = {
+  SCHEDULED: new Set(['QUEUED', 'SENT', 'CANCELLED', 'FAILED']),
+  QUEUED: new Set(['SENT', 'CANCELLED', 'FAILED']),
+  SENT: new Set(['DELIVERED', 'BOUNCED', 'REPLIED']),
+  DELIVERED: new Set(['BOUNCED', 'REPLIED']),
+  BOUNCED: new Set(['REPLIED']),
+  REPLIED: new Set(),
+  CANCELLED: new Set(),
+  FAILED: new Set(),
 };
 
 export function mergeMessageStatus(
@@ -141,7 +141,31 @@ export function mergeMessageStatus(
   incoming: MessageStatus | null,
 ): MessageStatus {
   if (!incoming) return current;
-  return STATUS_RANK[incoming] > STATUS_RANK[current] ? incoming : current;
+  if (incoming === current) return current;
+  return VALID_TRANSITIONS[current].has(incoming) ? incoming : current;
+}
+
+export type ProcessedEmailEvent = {
+  status: MessageStatus;
+  effects: EmailEventEffects;
+  duplicate: boolean;
+  stateChanged: boolean;
+};
+
+/** Pure orchestration helper: audit every key, but apply side effects exactly once. */
+export function processEmailEvent(
+  current: MessageStatus,
+  type: EmailEventType,
+  eventKey: string,
+  processedKeys: ReadonlySet<string>,
+  context?: EventContext,
+): ProcessedEmailEvent {
+  if (processedKeys.has(eventKey)) {
+    return { status: current, effects: effects(), duplicate: true, stateChanged: false };
+  }
+  const eventEffects = emailEventEffects(type, context);
+  const status = mergeMessageStatus(current, eventEffects.messageStatus);
+  return { status, effects: eventEffects, duplicate: false, stateChanged: status !== current };
 }
 
 /**

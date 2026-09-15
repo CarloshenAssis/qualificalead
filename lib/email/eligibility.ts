@@ -7,6 +7,7 @@ import type {
   TemplateStatus,
 } from '@/types/spec2';
 import { canSendEmails } from '@/lib/campaigns/state';
+import { isEmailStatusSendable } from '@/lib/email/sendability';
 
 /**
  * Portao de envio (SPEC 2.0 §17.3).
@@ -21,7 +22,7 @@ import { canSendEmails } from '@/lib/campaigns/state';
 
 export type SendEligibilityInput = {
   campaignStatus: CampaignStatus;
-  leadStage: PipelineStage;
+  leadStage: PipelineStage | string;
   leadApproved: boolean;
 
   contactEmail: string | null;
@@ -63,21 +64,10 @@ export type SendBlocker = { code: string; label: string };
 export type SendEligibility = { allowed: boolean; blockers: SendBlocker[] };
 
 /** E-mails que nunca podem ser agendados (SPEC 2.0 §10.3). */
-const UNSENDABLE_STATUSES: ReadonlySet<EmailVerificationStatus> = new Set<EmailVerificationStatus>([
-  'INVALID',
-  'BOUNCED',
-  'SUPPRESSED',
-  'DISPOSABLE',
-]);
-
-/** Estagios em que o lead esta fora de qualquer cadencia (SPEC 2.0 §21.2). */
-const NON_SENDABLE_STAGES: ReadonlySet<PipelineStage> = new Set<PipelineStage>([
-  'WON',
-  'LOST',
-  'NOT_INTERESTED',
-  'DO_NOT_CONTACT',
-  'REPLIED',
-  'POSITIVE_REPLY',
+/** Explicit allowlist: a future or malformed stage always fails closed. */
+const SENDABLE_STAGES: ReadonlySet<string> = new Set([
+  'APPROVED_FOR_EMAIL',
+  'EMAIL_SEQUENCE_ACTIVE',
 ]);
 
 export function checkSendEligibility(input: SendEligibilityInput): SendEligibility {
@@ -90,13 +80,13 @@ export function checkSendEligibility(input: SendEligibilityInput): SendEligibili
 
   if (!input.leadApproved) block('LEAD_NOT_APPROVED', 'Lead ainda nao foi aprovado.');
 
-  if (NON_SENDABLE_STAGES.has(input.leadStage)) {
+  if (!SENDABLE_STAGES.has(input.leadStage)) {
     block('LEAD_STAGE_BLOCKS', `Lead em ${input.leadStage} nao recebe novos e-mails.`);
   }
 
   if (!input.contactEmail?.trim()) block('NO_EMAIL', 'Contato sem endereco de e-mail.');
 
-  if (UNSENDABLE_STATUSES.has(input.emailVerificationStatus)) {
+  if (!isEmailStatusSendable(input.emailVerificationStatus)) {
     block('EMAIL_NOT_SENDABLE', `E-mail em estado ${input.emailVerificationStatus}.`);
   }
 

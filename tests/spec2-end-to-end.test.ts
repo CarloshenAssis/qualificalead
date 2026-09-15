@@ -46,6 +46,11 @@ describe('jornada: campanha -> aprovacao -> envio -> resposta -> venda', () => {
     }
 
     const qualification = qualifyCompany({
+      userId: 'user-1', companyId: 'company-1', decisionAt: '2026-09-15T12:00:00Z',
+      evidence: [{ id: 'evidence-1', user_id: 'user-1', company_id: 'company-1',
+        type: 'HAS_CTA', value: false, status: 'CONFIRMED',
+        observed_at: '2026-09-14T12:00:00Z', expires_at: null,
+        source_url: 'https://empresa.example/' }],
       gaps: [
         { gap_type: 'NO_CONVERSION_PAGE', severity: 4, confidence: 0.9, status: 'CONFIRMED' },
         { gap_type: 'NO_LEAD_CAPTURE', severity: 4, confidence: 0.85, status: 'CONFIRMED' },

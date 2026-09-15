@@ -1,4 +1,10 @@
 import type { Contact, EmailVerificationStatus } from '@/types/spec2';
+import { isEmailStatusSendable } from '@/lib/email/sendability';
+
+/** @deprecated Prefer the positive allowlist in email/sendability. */
+export const BLOCKED_EMAIL_STATUSES: ReadonlySet<EmailVerificationStatus> = new Set([
+  'UNKNOWN', 'RISKY', 'INVALID', 'DISPOSABLE', 'BOUNCED', 'SUPPRESSED',
+]);
 
 /**
  * Escolha do contato e normalizacao de e-mail (SPEC 2.0 §10).
@@ -58,17 +64,13 @@ export function isGenericEmail(raw: string | null | undefined): boolean {
 }
 
 /** Nunca agendavel (SPEC 2.0 §10.3, ultima linha). */
-export const BLOCKED_EMAIL_STATUSES: ReadonlySet<EmailVerificationStatus> = new Set<
-  EmailVerificationStatus
->(['INVALID', 'BOUNCED', 'SUPPRESSED', 'DISPOSABLE']);
-
 export type ContactCandidate = Pick<
   Contact,
   'id' | 'email' | 'role' | 'is_decision_maker' | 'is_primary' | 'email_verification_status'
 > & { name?: string | null };
 
 export function isSchedulable(contact: ContactCandidate): boolean {
-  if (BLOCKED_EMAIL_STATUSES.has(contact.email_verification_status)) return false;
+  if (!isEmailStatusSendable(contact.email_verification_status)) return false;
   if (!normalizeEmail(contact.email)) return false;
   if (isGenericEmail(contact.email)) return false;
   return true;

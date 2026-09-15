@@ -51,8 +51,9 @@ describe('catalogo de gaps (SPEC 2.0 §12)', () => {
     expect(isGapEvaluable('NO_LEAD_CAPTURE', { WEBSITE_REACHABLE: true })).toBe(false);
   });
 
-  it('gap sem exigencia de observacao e sempre avaliavel', () => {
-    expect(isGapEvaluable('NO_WEBSITE', {})).toBe(true);
+  it('NO_WEBSITE exige resolucao negativa explicita; gap interno nao usa auditoria', () => {
+    expect(isGapEvaluable('NO_WEBSITE', {})).toBe(false);
+    expect(isGapEvaluable('NO_WEBSITE', { WEBSITE_REACHABLE: false })).toBe(true);
     expect(isGapEvaluable('MANUAL_FOLLOW_UP', {})).toBe(true);
   });
 });
@@ -84,7 +85,7 @@ describe('catalogo de ofertas (SPEC 2.0 §13)', () => {
   });
 
   it('a recomendacao segue a oferta preferida do gap', () => {
-    expect(recommendOffer('NO_WEBSITE').offer).toBe('INSTITUTIONAL_WEBSITE');
+    expect(recommendOffer('NO_WEBSITE', ['WEBSITE_REACHABLE']).offer).toBe('INSTITUTIONAL_WEBSITE');
     expect(recommendOffer('NO_SCHEDULING', ['WEBSITE_REACHABLE']).offer).toBe('SCHEDULING_PAGE');
     expect(recommendOffer('DISCONNECTED_WORKFLOW').offer).toBe('CUSTOM_AUTOMATION');
   });
