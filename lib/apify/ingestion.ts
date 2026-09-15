@@ -1,0 +1,6 @@
+import type { RawBusiness } from '@/lib/prospecting/sources/types';
+import { normalizePhone } from '@/lib/whatsapp/phone';
+const normalizeDomain=(value:string|undefined):string|null=>{if(!value)return null;try{return new URL(value).hostname.replace(/^www\./,'').toLowerCase();}catch{return null;}};
+export type ImportedBusiness={business:RawBusiness;dedupeKey:string;observations:Array<{type:'WEBSITE_REACHABLE';value:null;sourceUrl:string|null}>;stage:'REVIEW_PENDING'};
+export function apifyDedupeKeys(x:RawBusiness):string[]{ const keys=[`source:${x.source}:${x.sourceId}`]; const domain=normalizeDomain(x.website); const phone=normalizePhone(x.phoneInternational??x.phone); if(domain)keys.push(`domain:${domain}`);if(phone)keys.push(`phone:${phone}`);if(x.name&&x.address&&x.city)keys.push(`place:${[x.name,x.address,x.city].map(v=>v.toLowerCase().trim()).join('|')}`);return keys; }
+export function ingestDataset(items:RawBusiness[],seen:ReadonlySet<string>):ImportedBusiness[]{ const local=new Set(seen);const out:ImportedBusiness[]=[];for(const business of items){const keys=apifyDedupeKeys(business);if(keys.some(k=>local.has(k)))continue;keys.forEach(k=>local.add(k));out.push({business,dedupeKey:keys[0],observations:[{type:'WEBSITE_REACHABLE',value:null,sourceUrl:business.sourceUrl??null}],stage:'REVIEW_PENDING'});}return out; }

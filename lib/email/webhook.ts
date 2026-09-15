@@ -1,0 +1,3 @@
+import 'server-only';import{createHmac,timingSafeEqual}from'node:crypto';import{z}from'zod';
+export const emailWebhookSchema=z.object({id:z.string(),type:z.enum(['email.delivered','email.bounced','email.complained','email.opened','email.clicked','email.received']),created_at:z.string(),data:z.object({email_id:z.string(),bounce:z.object({type:z.enum(['hard','soft'])}).optional()}).passthrough()});
+export function verifyEmailWebhook(body:string,signature:string|null,secret:string){if(!signature)return false;const a=createHmac('sha256',secret).update(body).digest('hex'),b=signature.replace(/^sha256=/,'');return a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));}

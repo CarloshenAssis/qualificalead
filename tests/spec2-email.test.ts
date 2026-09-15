@@ -329,3 +329,29 @@ describe('supressao (SPEC 2.0 §29.2)', () => {
     expect(suppressionValue('CONTACT', ' contact-1 ')).toBe('contact-1');
   });
 });
+
+describe('processamento auditavel e persistente', () => {
+  it('evento incompatível é auditado sem efeitos', async () => {
+    const { processEmailEvent } = await import('@/lib/email/events');
+    expect(processEmailEvent('REPLIED', 'HARD_BOUNCE', 'late', new Set())).toMatchObject({
+      status: 'REPLIED', incompatible: true, duplicate: false,
+      effects: { suppress: null, cancelRemainingSteps: false, createTask: false }, effectKeys: [],
+    });
+  });
+  it('efeitos têm chaves persistíveis e não são reaplicados', async () => {
+    const { processEmailEvent } = await import('@/lib/email/events');
+    const first = processEmailEvent('SENT', 'REPLIED', 'reply-1', new Set());
+    expect(first.effectKeys).toEqual(['reply-1:STATUS', 'reply-1:CANCEL_SEQUENCE', 'reply-1:TASK']);
+    const replayedEffect = processEmailEvent('SENT', 'REPLIED', 'reply-1', new Set(), {
+      softBounceCount: 1, softBounceLimit: 3, appliedEffectKeys: new Set(first.effectKeys),
+    });
+    expect(replayedEffect.effects).toMatchObject({ createTask: false, cancelRemainingSteps: false });
+  });
+  it('terminais contraditórios não repetem efeitos', async () => {
+    const { processEmailEvent } = await import('@/lib/email/events');
+    const result = processEmailEvent('DELIVERED', 'UNSUBSCRIBED', 'u1', new Set(), {
+      softBounceCount: 1, softBounceLimit: 3, terminalEvents: new Set(['COMPLAINT']),
+    });
+    expect(result).toMatchObject({ incompatible: true, effectKeys: [], effects: { suppress: null } });
+  });
+});

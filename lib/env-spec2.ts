@@ -72,7 +72,7 @@ export type EmailEnv = {
   dailyLimit: number;
 };
 
-export const DEFAULT_EMAIL_DAILY_LIMIT = 25;
+export const DEFAULT_EMAIL_DAILY_LIMIT = 20;
 
 export function emailEnv(): EmailEnv {
   return {
@@ -169,8 +169,10 @@ export function workerEnv(): WorkerEnv {
 /** Toda variavel secreta da 2.0 — usada pelo teste que proibe expor segredo. */
 export const SPEC2_SECRET_ENV_VARS = [
   'APIFY_API_TOKEN',
+  'APIFY_TOKEN',
   'APIFY_WEBHOOK_SECRET',
   'EMAIL_API_KEY',
+  'RESEND_API_KEY',
   'EMAIL_WEBHOOK_SECRET',
   'EMAIL_INBOUND_SECRET',
   'AI_API_KEY',
