@@ -9,7 +9,7 @@ import type {
 } from '@/types/spec2';
 import { recommendOffer } from '@/lib/offers/catalog';
 import { isEmailStatusSendable } from '@/lib/email/sendability';
-import { evidenceSupportsGap, type GapEvidence } from '@/lib/gaps/catalog';
+import { evidenceSetSupportsGap, type GapEvidence } from '@/lib/gaps/catalog';
 import {
   MAX_SINGLE_GAP_SHARE,
   MIN_DATA_CONFIDENCE_FOR_HIGH,
@@ -305,11 +305,8 @@ function decideAction(input: ActionInput): RecommendedAction {
   const primaryGapConfirmed = input.gaps.some(
     (gap) => gap.gap_type === input.primaryGap && gap.status === ('CONFIRMED' satisfies GapStatus),
   );
-  const hasValidEvidence = Boolean(
-    input.primaryGap && input.userId && input.companyId && input.evidence.some((evidence) =>
-      evidenceSupportsGap(evidence, input.primaryGap!, input.userId!, input.companyId!, input.decisionAt),
-    ),
-  );
+  const hasValidEvidence = Boolean(input.primaryGap && input.userId && input.companyId &&
+    evidenceSetSupportsGap(input.evidence, input.primaryGap, input.userId, input.companyId, input.decisionAt));
 
   if (primaryGapConfirmed && !hasValidEvidence) {
     input.reasons.push({
