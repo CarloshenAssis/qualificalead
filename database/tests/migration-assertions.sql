@@ -51,11 +51,47 @@ begin
   select string_agg(format('%s.%s', tablename, policyname), ', ') into offending
   from pg_policies
   where schemaname = 'public'
-    and tablename in ('message_events', 'audit_log')
+    and tablename in ('message_events', 'audit_log', 'qualification_results')
     and cmd in ('UPDATE', 'DELETE');
 
   if offending is not null then
     raise exception 'Policies de escrita em tabela imutavel: %', offending;
+  end if;
+end $$;
+
+-- Optional tenant-safe FKs clear only their optional id (user_id must survive).
+do $$
+declare missing text;
+begin
+  select string_agg(expected.name, ', ') into missing
+  from (values
+    ('qualification_results_campaign_same_user_fk'), ('campaign_leads_contact_same_user_fk'),
+    ('campaign_leads_qualification_same_user_fk'), ('sequence_steps_template_same_user_fk'),
+    ('campaigns_sequence_same_user_fk'), ('outbound_messages_contact_same_user_fk'),
+    ('outbound_messages_sender_same_user_fk'), ('outbound_messages_step_same_user_fk'),
+    ('outbound_messages_template_same_user_fk'), ('inbound_messages_lead_same_user_fk'),
+    ('tasks_contact_same_user_fk'), ('sales_opportunities_contact_same_user_fk'),
+    ('sales_opportunities_campaign_same_user_fk'), ('inbound_messages_contact_same_user_fk'),
+    ('inbound_messages_outbound_same_user_fk'), ('jobs_campaign_same_user_fk')
+  ) expected(name)
+  where not exists (
+    select 1 from pg_constraint c
+    where c.conname = expected.name and c.contype = 'f' and c.confdeltype = 'n'
+      and c.confdelsetcols is not null and cardinality(c.confdelsetcols) = 1
+  );
+  if missing is not null then raise exception 'FKs SET NULL inseguras/ausentes: %', missing; end if;
+end $$;
+
+-- Database triggers, rather than application convention, enforce audit invariants.
+do $$ begin
+  if not exists (select 1 from pg_trigger where tgname = 'qualification_results_append_only' and not tgisinternal) then
+    raise exception 'trigger append-only de qualification_results ausente';
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'outbound_messages_immutable_after_send' and not tgisinternal) then
+    raise exception 'trigger de imutabilidade de outbound_messages ausente';
+  end if;
+  if not exists (select 1 from pg_trigger where tgname = 'qualification_results_require_evidence' and not tgisinternal) then
+    raise exception 'trigger de evidencia READY_FOR_EMAIL ausente';
   end if;
 end $$;
 

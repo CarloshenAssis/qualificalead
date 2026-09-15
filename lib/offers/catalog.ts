@@ -65,7 +65,7 @@ export const OFFER_CATALOG: Record<OfferType, OfferDefinition> = {
     'Presenca digital propria para uma empresa que hoje nao tem site.',
     10,
     ['NO_WEBSITE', 'WEBSITE_UNKNOWN'],
-    [],
+    ['WEBSITE_REACHABLE'],
     'Posso te mostrar como ficaria?',
     'LIGHT_PREVIEW',
     4,

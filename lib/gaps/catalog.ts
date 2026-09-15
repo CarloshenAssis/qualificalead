@@ -33,6 +33,18 @@ export type GapDefinition = {
   requiredObservations: ObservationType[];
 };
 
+export type GapEvidence = {
+  id: string;
+  user_id: string;
+  company_id: string;
+  type: ObservationType;
+  value: boolean | null;
+  status: 'OBSERVED' | 'INFERRED' | 'CONFIRMED' | 'REJECTED' | 'EXPIRED';
+  observed_at: string;
+  expires_at: string | null;
+  source_url: string | null;
+};
+
 export const GAP_CATALOG: Record<GapType, GapDefinition> = {
   NO_WEBSITE: {
     type: 'NO_WEBSITE',
@@ -42,7 +54,7 @@ export const GAP_CATALOG: Record<GapType, GapDefinition> = {
     needPoints: 60,
     defaultSeverity: 5,
     internal: false,
-    requiredObservations: [],
+    requiredObservations: ['WEBSITE_REACHABLE'],
   },
   /**
    * Nao e uma oportunidade: e a ausencia de informacao. Vale pouco de proposito, para
@@ -238,4 +250,22 @@ export function isGapEvaluable(
  */
 export function initialGapStatus(type: GapType): 'DETECTED' | 'NEEDS_REVIEW' {
   return GAP_CATALOG[type].internal ? 'NEEDS_REVIEW' : 'DETECTED';
+}
+
+/** Checks ownership, freshness and semantic compatibility of an observation. */
+export function evidenceSupportsGap(
+  evidence: GapEvidence,
+  gap: GapType,
+  userId: string,
+  companyId: string,
+  decisionAt: string,
+): boolean {
+  if (evidence.user_id !== userId || evidence.company_id !== companyId) return false;
+  if (!['OBSERVED', 'CONFIRMED'].includes(evidence.status)) return false;
+  if (evidence.expires_at && Date.parse(evidence.expires_at) <= Date.parse(decisionAt)) return false;
+  if (!evidence.source_url || !Number.isFinite(Date.parse(evidence.observed_at))) return false;
+  if (!GAP_CATALOG[gap].requiredObservations.includes(evidence.type)) return false;
+  // Negative gaps require an explicit negative observation; absence/null is never evidence.
+  if (gap === 'OUTDATED_INFORMATION') return evidence.value === true;
+  return evidence.value === false || (gap === 'WEAK_WEBSITE' && evidence.value === true);
 }

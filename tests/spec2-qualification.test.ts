@@ -36,6 +36,13 @@ function baseInput(overrides: Partial<QualificationInput> = {}): QualificationIn
   };
 }
 
+const validNoWebsiteEvidence = {
+  id: 'evidence-1', user_id: 'user-1', company_id: 'company-1',
+  type: 'WEBSITE_REACHABLE' as const, value: false, status: 'CONFIRMED' as const,
+  observed_at: '2026-09-14T12:00:00Z', expires_at: '2026-10-14T12:00:00Z',
+  source_url: 'https://resolver.example/check/1',
+};
+
 describe('subscores', () => {
   it('a formula dos pesos soma exatamente 1 (SPEC 2.0 §14.2)', () => {
     const total = Object.values(SUBSCORE_WEIGHTS).reduce((sum, weight) => sum + weight, 0);
@@ -355,6 +362,9 @@ describe('qualifyCompany — guardrails (SPEC 2.0 §14.4)', () => {
     const confirmed = qualifyCompany(
       baseInput({
         ...signals,
+        userId: 'user-1', companyId: 'company-1', decisionAt: '2026-09-15T12:00:00Z',
+        evidence: [validNoWebsiteEvidence],
+        availableObservations: ['WEBSITE_REACHABLE'],
         gaps: [
           { gap_type: 'NO_WEBSITE', severity: 5, confidence: 1, status: 'CONFIRMED' },
           { gap_type: 'NO_LEAD_CAPTURE', severity: 4, confidence: 0.9, status: 'CONFIRMED' },

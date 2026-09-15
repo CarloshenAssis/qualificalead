@@ -1,5 +1,4 @@
 import type {
-  EmailVerificationStatus,
   GapStatus,
   GapType,
   ObservationType,
@@ -9,6 +8,8 @@ import type {
   RecommendedAction,
 } from '@/types/spec2';
 import { recommendOffer } from '@/lib/offers/catalog';
+import { isEmailStatusSendable } from '@/lib/email/sendability';
+import { evidenceSupportsGap, type GapEvidence } from '@/lib/gaps/catalog';
 import {
   MAX_SINGLE_GAP_SHARE,
   MIN_DATA_CONFIDENCE_FOR_HIGH,
@@ -61,7 +62,12 @@ export type QualificationInput = {
   isSuppressed?: boolean;
   /** Decisao humana explicita de nao contatar. */
   doNotContact?: boolean;
-  evidenceIds?: string[];
+  /** Validated observation records, not merely untrusted identifiers. */
+  evidence?: GapEvidence[];
+  /** Tenant/company context against which evidence ownership is checked. */
+  userId?: string;
+  companyId?: string;
+  decisionAt?: string;
 };
 
 export type QualificationOutput = {
@@ -82,21 +88,8 @@ export type QualificationOutput = {
 };
 
 /** Estados de e-mail que jamais podem ser agendados (SPEC 2.0 §10.3/§17.3). */
-const UNSENDABLE_EMAIL_STATUSES: ReadonlySet<EmailVerificationStatus> = new Set<
-  EmailVerificationStatus
->(['INVALID', 'BOUNCED', 'SUPPRESSED', 'DISPOSABLE']);
-
-/** Estados que o sistema aceita agendar — `VALID` e o unico plenamente seguro. */
-const SENDABLE_EMAIL_STATUSES: ReadonlySet<EmailVerificationStatus> = new Set<
-  EmailVerificationStatus
->(['VALID', 'ROLE_BASED', 'ACCEPT_ALL']);
-
 function hasSendableEmail(contacts: ContactSignal[]): boolean {
-  return contacts.some(
-    (contact) =>
-      SENDABLE_EMAIL_STATUSES.has(contact.email_verification_status) &&
-      !UNSENDABLE_EMAIL_STATUSES.has(contact.email_verification_status),
-  );
+  return contacts.some((contact) => isEmailStatusSendable(contact.email_verification_status));
 }
 
 export function classifyLevel(score: number): OpportunityLevelV2 {
@@ -236,6 +229,10 @@ export function qualifyCompany(input: QualificationInput): QualificationOutput {
     isSuppressed: Boolean(input.isSuppressed),
     doNotContact: Boolean(input.doNotContact),
     reasons,
+    evidence: input.evidence ?? [],
+    userId: input.userId,
+    companyId: input.companyId,
+    decisionAt: input.decisionAt ?? new Date().toISOString(),
   });
 
   return {
@@ -252,7 +249,7 @@ export function qualifyCompany(input: QualificationInput): QualificationOutput {
     recommended_offer: recommendedOffer,
     recommended_action: recommendedAction,
     reasons,
-    evidence_ids: input.evidenceIds ?? [],
+    evidence_ids: (input.evidence ?? []).map((evidence) => evidence.id),
   };
 }
 
@@ -266,6 +263,10 @@ type ActionInput = {
   isSuppressed: boolean;
   doNotContact: boolean;
   reasons: QualificationReason[];
+  evidence: GapEvidence[];
+  userId?: string;
+  companyId?: string;
+  decisionAt: string;
 };
 
 /**
@@ -304,11 +305,24 @@ function decideAction(input: ActionInput): RecommendedAction {
   const primaryGapConfirmed = input.gaps.some(
     (gap) => gap.gap_type === input.primaryGap && gap.status === ('CONFIRMED' satisfies GapStatus),
   );
+  const hasValidEvidence = Boolean(
+    input.primaryGap && input.userId && input.companyId && input.evidence.some((evidence) =>
+      evidenceSupportsGap(evidence, input.primaryGap!, input.userId!, input.companyId!, input.decisionAt),
+    ),
+  );
+
+  if (primaryGapConfirmed && !hasValidEvidence) {
+    input.reasons.push({
+      code: 'INVALID_OR_MISSING_EVIDENCE',
+      label: 'Gap primario sem evidencia ativa, compativel e pertencente a mesma empresa e tenant.',
+    });
+  }
 
   if (
     input.score >= MIN_SCORE_FOR_READY &&
     input.dataConfidence >= MIN_DATA_CONFIDENCE_FOR_HIGH &&
-    primaryGapConfirmed
+    primaryGapConfirmed &&
+    hasValidEvidence
   ) {
     return 'READY_FOR_EMAIL';
   }

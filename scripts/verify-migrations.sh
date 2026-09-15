@@ -26,8 +26,8 @@ apply_all() {
   done
 }
 
-apply_all "banco vazio"
-apply_all "banco atualizado (reexecucao)"
+apply_all "banco vazio (0001 ate hardening)"
+apply_all "banco atualizado ate 0007 + hardening em reexecucao/no-op"
 
 echo "--- verificacao ---"
 psql -v ON_ERROR_STOP=1 -q -d "${DB_NAME}" -f "${ROOT}/database/tests/migration-assertions.sql"

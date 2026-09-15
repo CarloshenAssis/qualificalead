@@ -1,6 +1,7 @@
 import type { EmailVerificationStatus, GapStatus, GapType, OfferType } from '@/types/spec2';
 import { GAP_CATALOG } from '@/lib/gaps/catalog';
 import { OFFER_CATALOG } from '@/lib/offers/catalog';
+import { isEmailStatusSendable } from '@/lib/email/sendability';
 import { MAX_SUBSCORE } from './config';
 
 /**
@@ -235,8 +236,8 @@ const EMAIL_STATUS_POINTS: Record<EmailVerificationStatus, number> = {
   VALID: 60,
   ROLE_BASED: 35,
   ACCEPT_ALL: 30,
-  RISKY: 25,
-  UNKNOWN: 10,
+  RISKY: 0,
+  UNKNOWN: 0,
   INVALID: 0,
   DISPOSABLE: 0,
   BOUNCED: 0,
@@ -253,7 +254,8 @@ export function computeContactabilityScore(contacts: ContactSignal[]): number {
   if (!contacts.length) return 0;
 
   const bestEmailPoints = Math.max(
-    ...contacts.map((contact) => EMAIL_STATUS_POINTS[contact.email_verification_status] ?? 0),
+    ...contacts.map((contact) => isEmailStatusSendable(contact.email_verification_status)
+      ? EMAIL_STATUS_POINTS[contact.email_verification_status] : 0),
   );
 
   let points = bestEmailPoints;
@@ -261,7 +263,7 @@ export function computeContactabilityScore(contacts: ContactSignal[]): number {
   const decisionMakerReachable = contacts.some(
     (contact) =>
       contact.is_decision_maker &&
-      (EMAIL_STATUS_POINTS[contact.email_verification_status] ?? 0) > 0,
+      isEmailStatusSendable(contact.email_verification_status),
   );
   if (decisionMakerReachable) points += CONTACTABILITY_POINTS.decisionMakerReachable;
 
