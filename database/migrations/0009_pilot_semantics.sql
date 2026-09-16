@@ -3,7 +3,8 @@
 create or replace function qualification_gap_evidence_policy(gap text)
 returns table(observation_type text, expected_value boolean)
 language sql immutable parallel safe as $$
-  select * from (values
+  select p.observation_type, p.expected_value
+  from (values
     ('NO_WEBSITE','WEBSITE_REACHABLE',false),
     ('NO_CONVERSION_PAGE','WEBSITE_REACHABLE',true), ('NO_CONVERSION_PAGE','HAS_CTA',false),
     ('NO_LEAD_CAPTURE','WEBSITE_REACHABLE',true), ('NO_LEAD_CAPTURE','HAS_FORM',false),
@@ -39,6 +40,20 @@ end $$;
 
 -- Durable ledger: audit events and effects are separate, so an incompatible event
 -- remains visible without accidentally replaying suppression/tasks/pipeline work.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'message_events_id_user_key'
+      and conrelid = 'message_events'::regclass
+  ) then
+    alter table message_events
+      add constraint message_events_id_user_key
+      unique (id, user_id);
+  end if;
+end $$;
+
 create table if not exists email_event_effects (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

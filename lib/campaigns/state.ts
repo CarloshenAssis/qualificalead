@@ -12,13 +12,14 @@ import type { CampaignStatus } from '@/types/spec2';
 const TRANSITIONS: Record<CampaignStatus, CampaignStatus[]> = {
   DRAFT: ['READY', 'CANCELLED'],
   // Volta para DRAFT e permitida: o usuario pode reabrir a configuracao antes de comecar.
-  READY: ['DISCOVERING', 'DRAFT', 'CANCELLED'],
+  READY: ['COLLECTING', 'DISCOVERING', 'DRAFT', 'CANCELLED'],
+  COLLECTING: ['REVIEW_REQUIRED', 'PAUSED', 'CANCELLED', 'FAILED'],
   DISCOVERING: ['ENRICHING', 'PAUSED', 'CANCELLED', 'FAILED'],
   ENRICHING: ['SCORING', 'PAUSED', 'CANCELLED', 'FAILED'],
   SCORING: ['REVIEW_REQUIRED', 'PAUSED', 'CANCELLED', 'FAILED'],
   REVIEW_REQUIRED: ['ACTIVE', 'PAUSED', 'CANCELLED'],
   ACTIVE: ['PAUSED', 'COMPLETED', 'CANCELLED', 'FAILED'],
-  PAUSED: ['ACTIVE', 'COMPLETED', 'CANCELLED'],
+  PAUSED: ['COLLECTING', 'ACTIVE', 'COMPLETED', 'CANCELLED'],
   // Terminais: nao apagam historico, apenas param de produzir efeito (SPEC 2.0 §7.4).
   COMPLETED: [],
   CANCELLED: [],

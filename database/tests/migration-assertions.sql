@@ -16,7 +16,7 @@ declare
     'qualification_results', 'email_senders', 'email_templates', 'sequences',
     'sequence_steps', 'outbound_messages', 'inbound_messages', 'message_events',
     'suppression_entries', 'sales_opportunities', 'tasks', 'jobs', 'job_events',
-    'audit_log'
+    'audit_log', 'email_event_effects', 'integration_receipts'
   ];
 begin
   select string_agg(t, ', ') into missing
@@ -40,6 +40,80 @@ begin
 
   if missing is not null then
     raise exception 'Tabelas sem RLS: %', missing;
+  end if;
+end $$;
+
+do $$
+declare missing text;
+begin
+ select string_agg(name, ', ') into missing from (values
+   ('receive_apify_webhook'),('receive_resend_webhook'),('start_apify_collection')
+ ) expected(name) where not exists(select 1 from pg_proc where proname=expected.name);
+ if missing is not null then raise exception 'Funções operacionais ausentes: %',missing; end if;
+ if not exists(select 1 from pg_trigger where tgname='email_event_effects_append_only') or
+    not exists(select 1 from pg_trigger where tgname='integration_receipts_append_only') then
+   raise exception 'Ledgers operacionais não são append-only';
+ end if;
+ if exists(select 1 from pg_policies where tablename in ('email_event_effects','integration_receipts') and cmd in ('UPDATE','DELETE','ALL')) then
+   raise exception 'Ledger operacional possui policy mutável';
+ end if;
+end $$;
+
+-- The event/effect relationship must carry the tenant through both sides of the FK.
+do $$
+declare
+  event_key pg_constraint%rowtype;
+  effect_fk pg_constraint%rowtype;
+  event_columns text[];
+  effect_columns text[];
+  referenced_columns text[];
+begin
+  select * into event_key
+  from pg_constraint
+  where conname = 'message_events_id_user_key'
+    and conrelid = 'message_events'::regclass
+    and contype = 'u';
+
+  if not found then
+    raise exception 'message_events_id_user_key ausente';
+  end if;
+
+  select array_agg(a.attname order by key_position)
+    into event_columns
+  from unnest(event_key.conkey) with ordinality as k(attnum, key_position)
+  join pg_attribute a
+    on a.attrelid = event_key.conrelid and a.attnum = k.attnum;
+
+  if event_columns is distinct from array['id', 'user_id']::text[] then
+    raise exception 'message_events_id_user_key usa colunas incorretas: %', event_columns;
+  end if;
+
+  select * into effect_fk
+  from pg_constraint
+  where conrelid = 'email_event_effects'::regclass
+    and confrelid = 'message_events'::regclass
+    and contype = 'f';
+
+  if not found then
+    raise exception 'FK composta de email_event_effects para message_events ausente';
+  end if;
+
+  select array_agg(a.attname order by key_position)
+    into effect_columns
+  from unnest(effect_fk.conkey) with ordinality as k(attnum, key_position)
+  join pg_attribute a
+    on a.attrelid = effect_fk.conrelid and a.attnum = k.attnum;
+
+  select array_agg(a.attname order by key_position)
+    into referenced_columns
+  from unnest(effect_fk.confkey) with ordinality as k(attnum, key_position)
+  join pg_attribute a
+    on a.attrelid = effect_fk.confrelid and a.attnum = k.attnum;
+
+  if effect_columns is distinct from array['message_event_id', 'user_id']::text[]
+    or referenced_columns is distinct from array['id', 'user_id']::text[] then
+    raise exception 'FK de email_event_effects não é tenant-safe: % -> %',
+      effect_columns, referenced_columns;
   end if;
 end $$;
 

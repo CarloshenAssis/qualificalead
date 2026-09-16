@@ -72,7 +72,7 @@ export type EmailEnv = {
   dailyLimit: number;
 };
 
-export const DEFAULT_EMAIL_DAILY_LIMIT = 20;
+export const DEFAULT_EMAIL_DAILY_LIMIT = 25;
 
 export function emailEnv(): EmailEnv {
   return {
