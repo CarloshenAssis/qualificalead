@@ -44,6 +44,10 @@ export type EventContext = {
   softBounceCount: number;
   /** A partir de quantos soft bounces o endereco e suprimido (SPEC 2.0 §19.2). */
   softBounceLimit: number;
+  /** Terminal audit events already accepted for this message. */
+  terminalEvents?: ReadonlySet<'COMPLAINT' | 'UNSUBSCRIBED'>;
+  /** Durable effect keys loaded from email_event_effects. */
+  appliedEffectKeys?: ReadonlySet<string>;
 };
 
 export const DEFAULT_SOFT_BOUNCE_LIMIT = 3;
@@ -150,6 +154,9 @@ export type ProcessedEmailEvent = {
   effects: EmailEventEffects;
   duplicate: boolean;
   stateChanged: boolean;
+  incompatible: boolean;
+  /** Keys callers must insert before applying each effect (unique in PostgreSQL). */
+  effectKeys: string[];
 };
 
 /** Pure orchestration helper: audit every key, but apply side effects exactly once. */
@@ -161,11 +168,24 @@ export function processEmailEvent(
   context?: EventContext,
 ): ProcessedEmailEvent {
   if (processedKeys.has(eventKey)) {
-    return { status: current, effects: effects(), duplicate: true, stateChanged: false };
+    return { status: current, effects: effects(), duplicate: true, stateChanged: false, incompatible: false, effectKeys: [] };
   }
   const eventEffects = emailEventEffects(type, context);
   const status = mergeMessageStatus(current, eventEffects.messageStatus);
-  return { status, effects: eventEffects, duplicate: false, stateChanged: status !== current };
+  const terminal = type === 'COMPLAINT' || type === 'UNSUBSCRIBED';
+  const conflictingTerminal = terminal && context?.terminalEvents?.size && !context.terminalEvents.has(type);
+  const incompatible = Boolean(conflictingTerminal || (eventEffects.messageStatus && status === current && eventEffects.messageStatus !== current));
+  if (incompatible) return { status: current, effects: effects(), duplicate: false, stateChanged: false, incompatible: true, effectKeys: [] };
+  const candidates = [
+    status !== current && 'STATUS', eventEffects.cancelRemainingSteps && 'CANCEL_SEQUENCE',
+    eventEffects.suppress && 'SUPPRESSION', eventEffects.raiseAlert && 'ALERT',
+    eventEffects.createTask && 'TASK',
+  ].filter((value): value is string => Boolean(value)).map((kind) => `${eventKey}:${kind}`);
+  const effectKeys = candidates.filter((key) => !context?.appliedEffectKeys?.has(key));
+  if (effectKeys.length !== candidates.length) {
+    return { status: current, effects: effects(), duplicate: false, stateChanged: false, incompatible: false, effectKeys: [] };
+  }
+  return { status, effects: eventEffects, duplicate: false, stateChanged: status !== current, incompatible: false, effectKeys };
 }
 
 /**

@@ -33,6 +33,8 @@ const strong: QualificationInput = { userId: 'u1', companyId: 'c1', decisionAt: 
     hasMultipleServices: true, hasMultipleContacts: true, websiteReachable: true },
   timing: ['NEW_UNIT','NEW_SERVICE','ACTIVE_CAMPAIGN'], dataConfidence: { coverage: 1, freshness: 1, consistency: 1, sourceCount: 2 },
   availableObservations: ['WEBSITE_REACHABLE','HAS_FORM'] };
+const reachable = { id: 'e0', user_id: 'u1', company_id: 'c1', type: 'WEBSITE_REACHABLE' as const, value: true,
+  status: 'CONFIRMED' as const, observed_at: '2026-09-14T12:00:00Z', expires_at: null, source_url: 'https://company.example/' };
 const evidence = { id: 'e1', user_id: 'u1', company_id: 'c1', type: 'HAS_FORM' as const, value: false,
   status: 'CONFIRMED' as const, observed_at: '2026-09-14T12:00:00Z', expires_at: null,
   source_url: 'https://company.example/' };
@@ -45,7 +47,7 @@ describe('evidencia para READY_FOR_EMAIL', () => {
     ['outro tenant', [{ ...evidence, user_id: 'u2' }]],
     ['incompativel', [{ ...evidence, type: 'HAS_FAQ' as const }]],
   ])('%s nao fica pronto', (_label, value) => expect(qualifyCompany({ ...strong, evidence: value }).recommended_action).not.toBe('READY_FOR_EMAIL'));
-  it('evidencia valida libera', () => expect(qualifyCompany({ ...strong, evidence: [evidence] }).recommended_action).toBe('READY_FOR_EMAIL'));
+  it('evidencia valida libera', () => expect(qualifyCompany({ ...strong, evidence: [reachable, evidence] }).recommended_action).toBe('READY_FOR_EMAIL'));
   it('NO_WEBSITE exige observacao negativa explicita', () => {
     const result = qualifyCompany({ ...strong, gaps: [{ gap_type: 'NO_WEBSITE', severity: 5, confidence: 1, status: 'CONFIRMED' }],
       evidence: [{ ...evidence, type: 'WEBSITE_REACHABLE', value: null }] });

@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, KanbanSquare, LayoutDashboard, Search, Settings } from 'lucide-react';
+import { Building2, KanbanSquare, LayoutDashboard, Search, Settings, Megaphone, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const ITEMS = [
   { href: '/dashboard', label: 'Painel', icon: LayoutDashboard },
+  { href: '/campaigns', label: 'Campanhas', icon: Megaphone },
+  { href: '/review', label: 'Revisão', icon: ClipboardCheck },
   { href: '/prospecting', label: 'Prospectar', icon: Search },
   { href: '/companies', label: 'Empresas', icon: Building2 },
   { href: '/pipeline', label: 'Pipeline', icon: KanbanSquare },

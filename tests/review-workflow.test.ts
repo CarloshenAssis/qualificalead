@@ -1,0 +1,2 @@
+import {describe,expect,it} from 'vitest';import {reviewTransition} from '@/lib/review/workflow';
+describe('revisão humana',()=>{it('exige confirmação explícita',()=>expect(()=>reviewTransition('REVIEW_PENDING','APPROVE')).toThrow());it.each([['APPROVE',true,'APPROVED_FOR_EMAIL'],['REJECT',false,'LOST'],['RESEARCH_MORE',false,'ENRICHED'],['DO_NOT_CONTACT',false,'DO_NOT_CONTACT']] as const)('%s segue para %s',(d,c,w)=>expect(reviewTransition('REVIEW_PENDING',d,c)).toBe(w));});

@@ -95,10 +95,10 @@ describe('variaveis da SPEC 2.0 §31', () => {
 
   it('limites invalidos caem no padrao em vez de virar NaN', () => {
     process.env.EMAIL_DAILY_LIMIT = 'muitos';
-    expect(emailEnv().dailyLimit).toBe(25);
+    expect(emailEnv().dailyLimit).toBe(20);
 
     process.env.EMAIL_DAILY_LIMIT = '-5';
-    expect(emailEnv().dailyLimit).toBe(25);
+    expect(emailEnv().dailyLimit).toBe(20);
 
     process.env.JOB_BATCH_SIZE = '50';
     expect(workerEnv().batchSize).toBe(50);

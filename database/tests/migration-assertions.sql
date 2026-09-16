@@ -16,7 +16,7 @@ declare
     'qualification_results', 'email_senders', 'email_templates', 'sequences',
     'sequence_steps', 'outbound_messages', 'inbound_messages', 'message_events',
     'suppression_entries', 'sales_opportunities', 'tasks', 'jobs', 'job_events',
-    'audit_log'
+    'audit_log', 'email_event_effects', 'integration_receipts'
   ];
 begin
   select string_agg(t, ', ') into missing
@@ -146,3 +146,13 @@ begin
 end $$;
 
 select 'migracoes ok' as resultado;
+
+
+-- Pilot ledgers expose only tenant SELECT/INSERT and are trigger-protected even when RLS is bypassed.
+do $$ declare t text; begin
+  foreach t in array array['email_event_effects','integration_receipts'] loop
+    if exists(select 1 from pg_policies where schemaname='public' and tablename=t and cmd in ('UPDATE','DELETE')) then raise exception '% has mutable policy',t; end if;
+    if not exists(select 1 from pg_policies where schemaname='public' and tablename=t and cmd='SELECT') or not exists(select 1 from pg_policies where schemaname='public' and tablename=t and cmd='INSERT') then raise exception '% missing SELECT/INSERT policy',t; end if;
+    if not exists(select 1 from pg_trigger where tgrelid=('public.'||t)::regclass and tgname=t||'_append_only' and not tgisinternal) then raise exception '% missing append-only trigger',t; end if;
+  end loop;
+end $$;

@@ -45,6 +45,31 @@ export type GapEvidence = {
   source_url: string | null;
 };
 
+/**
+ * Canonical, conjunctive evidence policy. Each tuple is an observation and the
+ * value it must have. `null` means the gap cannot be promoted automatically and
+ * must remain in human review. Migration 0009 mirrors this table and the
+ * contract tests exercise every external gap in both directions.
+ */
+export const GAP_EVIDENCE_POLICY: Record<GapType, readonly (readonly [ObservationType, boolean])[] | null> = {
+  NO_WEBSITE: [['WEBSITE_REACHABLE', false]],
+  WEBSITE_UNKNOWN: null,
+  WEAK_WEBSITE: null,
+  NO_CONVERSION_PAGE: [['WEBSITE_REACHABLE', true], ['HAS_CTA', false]],
+  NO_LEAD_CAPTURE: [['WEBSITE_REACHABLE', true], ['HAS_FORM', false]],
+  NO_SCHEDULING: [['WEBSITE_REACHABLE', true], ['HAS_SCHEDULING', false]],
+  POOR_SERVICE_PRESENTATION: [['WEBSITE_REACHABLE', true], ['HAS_SERVICE_PAGES', false]],
+  WEAK_CTA: [['WEBSITE_REACHABLE', true], ['HAS_CTA', false]],
+  NO_FAQ: [['WEBSITE_REACHABLE', true], ['HAS_FAQ', false]],
+  WEAK_SOCIAL_DESTINATION: null,
+  NO_QUOTE_FLOW: [['WEBSITE_REACHABLE', true], ['HAS_QUOTE_FLOW', false]],
+  OUTDATED_INFORMATION: [['INFORMATION_OUTDATED', true]],
+  MANUAL_FOLLOW_UP: null,
+  MANUAL_PROPOSALS: null,
+  REPETITIVE_SERVICE_MESSAGES: null,
+  DISCONNECTED_WORKFLOW: null,
+};
+
 export const GAP_CATALOG: Record<GapType, GapDefinition> = {
   NO_WEBSITE: {
     type: 'NO_WEBSITE',
@@ -264,8 +289,18 @@ export function evidenceSupportsGap(
   if (!['OBSERVED', 'CONFIRMED'].includes(evidence.status)) return false;
   if (evidence.expires_at && Date.parse(evidence.expires_at) <= Date.parse(decisionAt)) return false;
   if (!evidence.source_url || !Number.isFinite(Date.parse(evidence.observed_at))) return false;
-  if (!GAP_CATALOG[gap].requiredObservations.includes(evidence.type)) return false;
-  // Negative gaps require an explicit negative observation; absence/null is never evidence.
-  if (gap === 'OUTDATED_INFORMATION') return evidence.value === true;
-  return evidence.value === false || (gap === 'WEAK_WEBSITE' && evidence.value === true);
+  const policy = GAP_EVIDENCE_POLICY[gap];
+  return Boolean(policy?.some(([type, value]) => type === evidence.type && value === evidence.value));
+}
+
+/** All clauses must be supported by distinct, valid records; one observation is never enough. */
+export function evidenceSetSupportsGap(
+  evidence: readonly GapEvidence[], gap: GapType, userId: string, companyId: string, decisionAt: string,
+): boolean {
+  const policy = GAP_EVIDENCE_POLICY[gap];
+  if (!policy?.length) return false;
+  return policy.every(([type, value]) => evidence.some((item) =>
+    item.type === type && item.value === value &&
+    evidenceSupportsGap(item, gap, userId, companyId, decisionAt),
+  ));
 }
