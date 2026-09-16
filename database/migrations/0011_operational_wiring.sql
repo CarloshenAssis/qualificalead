@@ -83,6 +83,7 @@ create or replace function receive_apify_webhook(
   p_run_id text, p_status text, p_dataset_id text, p_payload_hash text, p_payload jsonb
 ) returns table(duplicate boolean, job_id uuid, user_id uuid)
 language plpgsql security definer set search_path=public,pg_temp as $$
+#variable_conflict use_column
 declare src campaign_sources%rowtype; receipt_id uuid; created_job uuid;
 begin
   if p_status not in ('SUCCEEDED','FAILED','ABORTED','TIMED_OUT') then raise exception 'unsupported Apify status'; end if;
@@ -108,6 +109,9 @@ begin
   return query select false,created_job,src.user_id;
 end $$;
 revoke all on function receive_apify_webhook(text,text,text,text,jsonb) from public;
+-- The only real caller is the webhook route via createAdminClient() (service_role).
+-- Without this grant the revoke above leaves it uncallable by anyone but the owner.
+grant execute on function receive_apify_webhook(text,text,text,text,jsonb) to service_role;
 
 -- Receipt/event insertion is one transaction. Application workers apply the recorded event's
 -- domain effects using effect keys, also in a transaction/RPC.
@@ -116,6 +120,7 @@ create or replace function receive_resend_webhook(
   p_occurred_at timestamptz, p_payload_hash text, p_payload jsonb
 ) returns table(duplicate boolean, message_event_id uuid, user_id uuid)
 language plpgsql security definer set search_path=public,pg_temp as $$
+#variable_conflict use_column
 declare msg outbound_messages%rowtype; receipt_id uuid; event_id uuid;
 begin
   select * into msg from outbound_messages where provider_message_id=p_provider_message_id for update;
@@ -159,6 +164,8 @@ begin
   return query select false,event_id,msg.user_id;
 end $$;
 revoke all on function receive_resend_webhook(text,text,email_event_type,timestamptz,text,jsonb) from public;
+-- Same caller/reason as receive_apify_webhook above.
+grant execute on function receive_resend_webhook(text,text,email_event_type,timestamptz,text,jsonb) to service_role;
 
 -- Persists all effects of a successfully started provider run atomically.
 create or replace function start_apify_collection(
