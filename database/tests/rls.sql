@@ -107,6 +107,18 @@ select passo, esperado, obtido,
        case when obtido = esperado then 'PASS' else 'FAIL' end as resultado
 from rls_report;
 
+-- Em CI, o resultado acima passa em silencio: `psql -f` so falha em erro de SQL, nao
+-- porque uma linha diz FAIL. Este bloco e o gate real para execucao automatizada; a
+-- tabela continua acima, legivel, para quem roda isto manualmente no SQL Editor.
+do $$
+declare failing text;
+begin
+  select string_agg(passo, ', ') into failing from rls_report where obtido <> esperado;
+  if failing is not null then
+    raise exception 'RLS test failures: %', failing;
+  end if;
+end $$;
+
 -- 3. Limpeza ------------------------------------------------------------------
 
 delete from auth.users

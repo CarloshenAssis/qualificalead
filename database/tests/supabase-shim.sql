@@ -47,6 +47,20 @@ do $$ begin
   create role anon;
 exception when duplicate_object then null; end $$;
 
-grant usage on schema public to authenticated, anon;
+-- Usado pelas rotas de webhook via createAdminClient() (lib/supabase/admin.ts). Nao
+-- tem BYPASSRLS aqui de proposito: as duas RPCs que ele chama sao SECURITY DEFINER e
+-- resolvem o tenant pelo registro armazenado, nao por RLS do chamador.
+do $$ begin
+  create role service_role;
+exception when duplicate_object then null; end $$;
+
+grant usage on schema public to authenticated, anon, service_role;
 alter default privileges in schema public
   grant select, insert, update, delete on tables to authenticated;
+
+-- Real Supabase grants USAGE on schema auth (and EXECUTE on auth.uid()) to these
+-- roles, not just implicitly through RLS policies. Missing this here masked a
+-- permission gap that only surfaces when a function body calls auth.uid() directly
+-- (SECURITY INVOKER RPCs), as opposed to only referencing it inside a policy.
+grant usage on schema auth to authenticated, anon, service_role;
+grant execute on function auth.uid() to authenticated, anon, service_role;
