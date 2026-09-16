@@ -7,8 +7,11 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     services:
+      # Producao roda Postgres 17.6.1 (Supabase project "leadhunter", ref
+      # afalsydsmwijdupqkvqb). A versao aqui precisa acompanhar isso -- validar
+      # contra 16 nao prova nada sobre comportamento especifico do 17.
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
@@ -22,6 +25,8 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,4 +36,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      - name: git diff --check (no conflict markers / trailing whitespace)
+        run: |
+          git fetch origin main
+          git diff --check origin/main...HEAD
       - run: bash scripts/verify-migrations.sh
