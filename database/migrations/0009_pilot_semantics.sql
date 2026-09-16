@@ -40,6 +40,20 @@ end $$;
 
 -- Durable ledger: audit events and effects are separate, so an incompatible event
 -- remains visible without accidentally replaying suppression/tasks/pipeline work.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'message_events_id_user_key'
+      and conrelid = 'message_events'::regclass
+  ) then
+    alter table message_events
+      add constraint message_events_id_user_key
+      unique (id, user_id);
+  end if;
+end $$;
+
 create table if not exists email_event_effects (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
