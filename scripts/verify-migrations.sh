@@ -9,10 +9,12 @@ apply_range(){ local db="$1" first="$2" last="$3" file n;for file in "$ROOT"/dat
 
 recreate "$CLEAN_DB";apply_range "$CLEAN_DB" 0001 0011
 psql -v ON_ERROR_STOP=1 -q -d "$CLEAN_DB" -f "$ROOT/database/tests/migration-assertions.sql"
+psql -v ON_ERROR_STOP=1 -q -d "$CLEAN_DB" -f "$ROOT/database/tests/evidence-policy.sql"
 psql -v ON_ERROR_STOP=1 -q -d "$CLEAN_DB" -f "$ROOT/database/tests/operational-wiring.sql"
 psql -v ON_ERROR_STOP=1 -q -d "$CLEAN_DB" -f "$ROOT/database/tests/rls.sql"
 
 recreate "$UPGRADE_DB";apply_range "$UPGRADE_DB" 0001 0007;apply_range "$UPGRADE_DB" 0008 0011
 psql -v ON_ERROR_STOP=1 -q -d "$UPGRADE_DB" -f "$ROOT/database/tests/migration-assertions.sql"
+psql -v ON_ERROR_STOP=1 -q -d "$UPGRADE_DB" -f "$ROOT/database/tests/evidence-policy.sql"
 psql -v ON_ERROR_STOP=1 -q -d "$UPGRADE_DB" -f "$ROOT/database/tests/operational-wiring.sql"
 psql -v ON_ERROR_STOP=1 -q -d "$UPGRADE_DB" -f "$ROOT/database/tests/rls.sql"
