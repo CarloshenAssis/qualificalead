@@ -19,6 +19,7 @@ import type { SourceId } from '@/lib/prospecting/sources/types';
 export const CAMPAIGN_STATUSES = [
   'DRAFT',
   'READY',
+  'COLLECTING',
   'DISCOVERING',
   'ENRICHING',
   'SCORING',

@@ -1,33 +1,18 @@
 #!/usr/bin/env bash
-# ---------------------------------------------------------------------------
-# Aplica todas as migracoes num PostgreSQL local, duas vezes (SPEC 2.0 §32.4):
-#
-#   1. banco vazio      — a instalacao de alguem comecando hoje;
-#   2. banco atualizado — a segunda execucao precisa ser um no-op, porque na
-#      pratica migracoes sao reexecutadas (deploy repetido, recuperacao de erro).
-#
-# Uso: PGHOST=... PGPORT=... PGUSER=... ./scripts/verify-migrations.sh
-# ---------------------------------------------------------------------------
 set -euo pipefail
-
-DB_NAME="${DB_NAME:-leadhunter_migration_check}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CLEAN_DB="${DB_NAME:-leadhunter_migration_check}"
+UPGRADE_DB="${UPGRADE_DB_NAME:-leadhunter_upgrade_check}"
 
-psql -v ON_ERROR_STOP=1 -q -d postgres -c "drop database if exists ${DB_NAME}"
-psql -v ON_ERROR_STOP=1 -q -d postgres -c "create database ${DB_NAME}"
+recreate(){ psql -v ON_ERROR_STOP=1 -q -d postgres -c "drop database if exists $1";psql -v ON_ERROR_STOP=1 -q -d postgres -c "create database $1";psql -v ON_ERROR_STOP=1 -q -d "$1" -f "$ROOT/database/tests/supabase-shim.sql"; }
+apply_range(){ local db="$1" first="$2" last="$3" file n;for file in "$ROOT"/database/migrations/*.sql;do n="$(basename "$file" | cut -c1-4)";if ((10#$n >= 10#$first && 10#$n <= 10#$last));then echo "$db: $(basename "$file")";psql -v ON_ERROR_STOP=1 -q -d "$db" -f "$file";fi;done; }
 
-apply_all() {
-  local label="$1"
-  echo "--- ${label} ---"
-  psql -v ON_ERROR_STOP=1 -q -d "${DB_NAME}" -f "${ROOT}/database/tests/supabase-shim.sql"
-  for migration in "${ROOT}"/database/migrations/*.sql; do
-    echo "    $(basename "${migration}")"
-    psql -v ON_ERROR_STOP=1 -q -d "${DB_NAME}" -f "${migration}"
-  done
-}
+recreate "$CLEAN_DB";apply_range "$CLEAN_DB" 0001 0011
+psql -v ON_ERROR_STOP=1 -q -d "$CLEAN_DB" -f "$ROOT/database/tests/migration-assertions.sql"
+psql -v ON_ERROR_STOP=1 -q -d "$CLEAN_DB" -f "$ROOT/database/tests/operational-wiring.sql"
+psql -v ON_ERROR_STOP=1 -q -d "$CLEAN_DB" -f "$ROOT/database/tests/rls.sql"
 
-apply_all "banco vazio (0001 ate hardening)"
-apply_all "banco atualizado ate 0007 + hardening em reexecucao/no-op"
-
-echo "--- verificacao ---"
-psql -v ON_ERROR_STOP=1 -q -d "${DB_NAME}" -f "${ROOT}/database/tests/migration-assertions.sql"
+recreate "$UPGRADE_DB";apply_range "$UPGRADE_DB" 0001 0007;apply_range "$UPGRADE_DB" 0008 0011
+psql -v ON_ERROR_STOP=1 -q -d "$UPGRADE_DB" -f "$ROOT/database/tests/migration-assertions.sql"
+psql -v ON_ERROR_STOP=1 -q -d "$UPGRADE_DB" -f "$ROOT/database/tests/operational-wiring.sql"
+psql -v ON_ERROR_STOP=1 -q -d "$UPGRADE_DB" -f "$ROOT/database/tests/rls.sql"

@@ -16,7 +16,7 @@ declare
     'qualification_results', 'email_senders', 'email_templates', 'sequences',
     'sequence_steps', 'outbound_messages', 'inbound_messages', 'message_events',
     'suppression_entries', 'sales_opportunities', 'tasks', 'jobs', 'job_events',
-    'audit_log'
+    'audit_log', 'email_event_effects', 'integration_receipts'
   ];
 begin
   select string_agg(t, ', ') into missing
@@ -41,6 +41,22 @@ begin
   if missing is not null then
     raise exception 'Tabelas sem RLS: %', missing;
   end if;
+end $$;
+
+do $$
+declare missing text;
+begin
+ select string_agg(name, ', ') into missing from (values
+   ('receive_apify_webhook'),('receive_resend_webhook'),('start_apify_collection')
+ ) expected(name) where not exists(select 1 from pg_proc where proname=expected.name);
+ if missing is not null then raise exception 'Funções operacionais ausentes: %',missing; end if;
+ if not exists(select 1 from pg_trigger where tgname='email_event_effects_append_only') or
+    not exists(select 1 from pg_trigger where tgname='integration_receipts_append_only') then
+   raise exception 'Ledgers operacionais não são append-only';
+ end if;
+ if exists(select 1 from pg_policies where tablename in ('email_event_effects','integration_receipts') and cmd in ('UPDATE','DELETE','ALL')) then
+   raise exception 'Ledger operacional possui policy mutável';
+ end if;
 end $$;
 
 -- Imutabilidade: nem auditoria nem evento de entrega pode ser reescrito (§25.4).

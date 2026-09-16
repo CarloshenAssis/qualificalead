@@ -5,7 +5,12 @@ import { apifyItemSchema, apifyRunSchema, prospectingRequestSchema, type Prospec
 import type { ApifyConfig } from './config';
 
 export class ApifyError extends Error { constructor(message: string, readonly retryable: boolean, readonly status?: number) { super(message); } }
-const state = (s: string): ProviderRun['state'] => s === 'TIMED-OUT'||s === 'TIMING-OUT' ? 'TIMED_OUT' : s as ProviderRun['state'];
+const RUN_STATES = new Set<ProviderRun['state']>(['READY','RUNNING','SUCCEEDED','FAILED','ABORTED','TIMED_OUT']);
+const state = (value: string): ProviderRun['state'] => {
+ const normalized=value==='TIMED-OUT'||value==='TIMING-OUT'?'TIMED_OUT':value;
+ if(!RUN_STATES.has(normalized as ProviderRun['state'])) throw new ApifyError(`Estado Apify desconhecido: ${value}`,false);
+ return normalized as ProviderRun['state'];
+};
 export function normalizeApifyItem(value: unknown): RawBusiness | null {
  const parsed=apifyItemSchema.safeParse(value); if(!parsed.success) return null; const x=parsed.data; const name=x.title??x.name; const sourceId=x.placeId??x.id; if(!name||!sourceId) return null;
  return { source:'APIFY_GOOGLE_MAPS', sourceId, name, category:x.categoryName??x.category, address:x.address, city:x.city, state:x.state, country:x.country??x.countryCode, phone:x.phoneUnformatted??x.phone, website:x.website, sourceUrl:x.url, rating:x.totalScore, reviewCount:x.reviewsCount, latitude:x.location?.lat, longitude:x.location?.lng, email:x.email, metadata:{ importedBy:'apify' } };
